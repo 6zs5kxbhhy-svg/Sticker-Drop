@@ -29,7 +29,6 @@
         <p class="upload-hint">或点击此处选择文件 · 支持 PNG / JPG / GIF / WebP</p>
         <input type="file" id="fileInput" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" hidden>
       </div>
-      <!-- 上传预览 -->
       <div class="upload-preview hidden" id="uploadPreview">
         <img id="previewImage" alt="预览">
         <div class="preview-info">
@@ -37,6 +36,10 @@
           <div class="preview-name-row">
             <input type="text" id="previewName" class="input-name">
             <span class="preview-ext" id="previewExt">.png</span>
+          </div>
+          <div class="preview-group-row">
+            <label class="preview-label">上传到分组</label>
+            <select id="previewGroup" class="input-group-select"></select>
           </div>
           <div class="preview-actions">
             <button class="btn btn-cancel" id="btnCancel">取消</button>
@@ -46,7 +49,10 @@
       </div>
     </section>
 
-    <!-- 图库区域 -->
+    <!-- 分组标签栏 -->
+    <nav class="group-bar" id="groupTabs"></nav>
+
+    <!-- 图库 -->
     <section class="gallery-section">
       <div class="gallery-header">
         <h2>我的表情包</h2>
@@ -60,18 +66,15 @@
         </div>
       </div>
       <div class="gallery-grid" id="galleryGrid">
-        <!-- 加载中 -->
         <div class="gallery-status" id="galleryLoading">
           <div class="spinner"></div>
           <p>加载中...</p>
         </div>
-        <!-- 空状态 -->
         <div class="gallery-status hidden" id="galleryEmpty">
           <div class="empty-icon">📭</div>
           <p>还没有表情包</p>
           <p class="empty-hint">上传第一张图片吧！</p>
         </div>
-        <!-- 需要设置 -->
         <div class="gallery-status hidden" id="galleryNoSettings">
           <div class="empty-icon">⚙️</div>
           <p>请先点击右上角设置按钮</p>
@@ -137,7 +140,50 @@
     </div>
   </dialog>
 
-  <!-- Toast 通知 -->
+  <!-- 新建分组弹窗 -->
+  <dialog class="modal modal-small" id="newGroupModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>新建分组</h3>
+        <button class="btn-close" id="btnCloseNewGroup">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>分组名称</label>
+          <input type="text" id="newGroupInput" class="input" placeholder="例如：搞笑、工作、日常">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-cancel" id="btnCancelNewGroup">取消</button>
+        <button class="btn btn-save" id="btnCreateGroup" style="width:auto">创建</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 移动分组弹窗 -->
+  <dialog class="modal modal-small" id="moveGroupModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>移动到分组</h3>
+        <button class="btn-close" id="btnCloseMove">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>选择目标分组</label>
+          <select id="moveGroupSelect" class="input"></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-cancel" id="btnCancelMove">取消</button>
+        <button class="btn btn-save" id="btnConfirmMove" style="width:auto">移动</button>
+      </div>
+    </div>
+  </dialog>
+
   <div class="toast-container" id="toastContainer"></div>
 
   <footer class="footer">
