@@ -2,22 +2,110 @@
   <html lang="zh-CN">
   <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我的表情包</title>
     <style>
-      body { font-family: Arial; background: #f5f5f5; padding: 20px; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; background: #f5f5f5; padding:
+  20px; margin: 0; }
       h1 { text-align: center; color: #333; }
+      .upload-area {
+        background: white; border: 2px dashed #ccc; border-radius: 10px;
+        padding: 40px; text-align: center; margin: 20px auto; max-width:
+  500px;
+        cursor: pointer;
+      }
+      .upload-area:hover { border-color: #666; }
       .grid { display: grid; grid-template-columns: repeat(auto-fill,
   minmax(150px, 1fr)); gap: 15px; padding: 20px; }
       .card { background: white; border-radius: 10px; padding: 10px;
   box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center; }
       .card img { width: 100%; border-radius: 8px; }
-      .card p { margin: 10px 0 0; font-size: 14px; color: #666; }
+      .url-box {
+        background: #f0f0f0; padding: 5px 10px; border-radius: 5px;
+  font-size: 12px;
+        word-break: break-all; margin-top: 5px; display: none;
+      }
+      .btn-copy {
+        background: #4CAF50; color: white; border: none; padding: 5px 10px;
+        border-radius: 5px; cursor: pointer; margin-top: 5px;
+      }
+      .btn-copy:hover { background: #45a049; }
+      #fileInput { display: none; }
+      .status { text-align: center; padding: 10px; color: #666; }
     </style>
   </head>
   <body>
     <h1>🎉 我的表情包</h1>
-    <div class="grid">
-      <!-- 表情包会显示在这里 -->
+
+    <div class="upload-area"
+  onclick="document.getElementById('fileInput').click()">
+      <p>点击选择图片或拖拽图片到这里</p>
+      <p style="font-size:12px;color:#999;">支持 jpg, png, gif, webp</p>
     </div>
+    <input type="file" id="fileInput" multiple accept="image/*">
+
+    <div id="status" class="status"></div>
+    <div class="grid" id="grid"></div>
+
+    <script>
+      const grid = document.getElementById('grid');
+      const fileInput = document.getElementById('fileInput');
+      const status = document.getElementById('status');
+
+      fileInput.addEventListener('change', handleFiles);
+
+      async function handleFiles(e) {
+        const files = e.target.files;
+        for (let file of files) {
+          await uploadFile(file);
+        }
+      }
+
+      async function uploadFile(file) {
+        status.textContent = `正在上传: ${file.name}...`;
+
+        const formData = new FormData();
+        formData.append('image', file);
+
+        try {
+          const response = await fetch('https://api.imgbb.com/1/upload?key=
+  c7d4b9e5e7a5e5e7a5e5e7a5e5e5e7a5', {
+            method: 'POST',
+            body: formData
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            const url = data.data.url;
+            addToGrid(file.name, url);
+            status.textContent = `上传成功: ${file.name}`;
+          } else {
+            status.textContent = `上传失败: ${file.name}`;
+          }
+        } catch (err) {
+          status.textContent = `上传出错: ${err.message}`;
+        }
+      }
+
+      function addToGrid(name, url) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <img src="${url}" alt="${name}">
+          <div class="url-box" id="url-${Date.now()}">${url}</div>
+          <button class="btn-copy" onclick="copyUrl(this)">复制URL</button>
+        `;
+        grid.prepend(card);
+      }
+
+      function copyUrl(btn) {
+        const urlBox = btn.previousElementSibling;
+        navigator.clipboard.writeText(urlBox.textContent);
+        btn.textContent = '已复制!';
+        setTimeout(() => btn.textContent = '复制URL', 1500);
+      }
+    </script>
   </body>
   </html>
