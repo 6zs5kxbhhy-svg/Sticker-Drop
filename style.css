@@ -400,6 +400,66 @@ a:hover {
   color: var(--danger);
 }
 
+.btn-rename-card {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text-light);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-rename-card:hover {
+  border-color: #fdcb6e;
+  color: #e17055;
+}
+
+/* 重命名行内编辑 */
+.card-rename-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.card-rename-input {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  font-size: 12px;
+  outline: none;
+  min-width: 0;
+}
+.card-rename-ext {
+  font-size: 12px;
+  color: var(--text-light);
+  white-space: nowrap;
+}
+.btn-rename-ok,
+.btn-rename-cancel {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.btn-rename-ok {
+  background: var(--success);
+  color: #fff;
+}
+.btn-rename-cancel {
+  background: var(--border);
+  color: var(--text-light);
+}
+.btn-rename-ok:hover {
+  background: #00a381;
+}
+.btn-rename-cancel:hover {
+  background: #b2bec3;
+}
+
 /* ========== 状态显示 ========== */
 .gallery-status {
   grid-column: 1 / -1;
