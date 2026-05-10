@@ -29,10 +29,9 @@ var $ = function (sel) { return document.querySelector(sel); };
 var uploadZone = $('#uploadZone');
 var fileInput = $('#fileInput');
 var uploadPreview = $('#uploadPreview');
-var previewImage = $('#previewImage');
-var previewName = $('#previewName');
-var previewExt = $('#previewExt');
 var previewGroup = $('#previewGroup');
+var batchCount = $('#batchCount');
+var batchList = $('#batchList');
 var btnCancel = $('#btnCancel');
 var btnUpload = $('#btnUpload');
 var galleryGrid = $('#galleryGrid');
@@ -72,7 +71,7 @@ var repoInput = $('#repo');
 var branchInput = $('#branch');
 
 var selectedImages = {};
-var currentFile = null;
+var currentFiles = [];
 var pendingDelete = null;
 var currentGroup = 'all';
 var groups = [];
@@ -290,20 +289,23 @@ function fileToBase64(file) {
   });
 }
 
-function handleFileSelect(file) {
-  if (!file) return;
-  if (!file.type.startsWith('image/')) { showToast('请选择图片文件', 'error'); return; }
-  if (file.size > 10 * 1024 * 1024) { showToast('文件大小不能超过 10MB', 'error'); return; }
-  currentFile = file;
-  var dot = file.name.lastIndexOf('.');
-  var baseName = dot >= 0 ? file.name.substring(0, dot) : file.name;
-  var ext = dot >= 0 ? file.name.substring(dot) : '.png';
-  var url = URL.createObjectURL(file);
-  previewImage.src = url;
-  previewName.value = baseName;
-  previewExt.textContent = ext;
+function handleFileSelect(files) {
+  if (!files || files.length === 0) return;
+  var fileList = files instanceof FileList ? Array.from(files) : (Array.isArray(files) ? files : [files]);
+  var added = 0;
+  fileList.forEach(function (file) {
+    if (!file.type.startsWith('image/')) { showToast(file.name + ' 不是图片文件', 'error'); return; }
+    if (file.size > 10 * 1024 * 1024) { showToast(file.name + ' 超过 10MB 限制', 'error'); return; }
+    currentFiles.push({ file: file });
+    added++;
+  });
+  if (added === 0) return;
+  renderBatchList();
+  uploadZone.classList.add('hidden');
+  uploadPreview.classList.remove('hidden');
+}
 
-  // 填充分组下拉
+function renderBatchList() {
   previewGroup.innerHTML = '<option value="default">默认分组</option>';
   groups.forEach(function (g) {
     if (g !== 'default') {
@@ -313,41 +315,60 @@ function handleFileSelect(file) {
   if (currentGroup !== 'all' && currentGroup !== 'default') {
     previewGroup.value = currentGroup;
   }
-
-  uploadZone.classList.add('hidden');
-  uploadPreview.classList.remove('hidden');
+  batchCount.textContent = '已选 ' + currentFiles.length + ' 个文件';
+  batchList.innerHTML = '';
+  currentFiles.forEach(function (item, index) {
+    var div = document.createElement('div');
+    div.className = 'batch-item';
+    var url = URL.createObjectURL(item.file);
+    div.innerHTML = '<img class="batch-thumb" src="' + url + '" alt="">'
+      + '<span class="batch-filename">' + escapeHtml(item.file.name) + '</span>'
+      + '<button class="batch-remove" data-index="' + index + '">×</button>';
+    batchList.appendChild(div);
+  });
+  batchList.querySelectorAll('.batch-remove').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var idx = parseInt(this.getAttribute('data-index'));
+      if (!isNaN(idx)) {
+        currentFiles.splice(idx, 1);
+        if (currentFiles.length === 0) resetUpload();
+        else renderBatchList();
+      }
+    });
+  });
 }
 
 async function doUpload() {
-  if (!currentFile) return;
-  var name = previewName.value.trim();
-  if (!name) { showToast('请输入文件名', 'error'); return; }
-  var ext = previewExt.textContent;
-  var filename = name + ext;
+  if (currentFiles.length === 0) return;
   var group = previewGroup.value;
-
   btnUpload.disabled = true;
-  btnUpload.textContent = '上传中...';
-  try {
-    var base64 = await fileToBase64(currentFile);
-    await uploadImageFile(filename, base64, group);
-    showToast('上传成功！');
-    resetUpload();
-    await refreshAll();
-  } catch (e) {
-    showToast(e.message, 'error');
-  } finally {
-    btnUpload.disabled = false;
-    btnUpload.textContent = '上传图片';
+  var total = currentFiles.length;
+  var success = 0;
+  var failed = 0;
+  for (var i = 0; i < currentFiles.length; i++) {
+    var item = currentFiles[i];
+    var filename = item.file.name;
+    btnUpload.textContent = '上传中... (' + (i + 1) + '/' + total + ')';
+    try {
+      var base64 = await fileToBase64(item.file);
+      await uploadImageFile(filename, base64, group);
+      success++;
+    } catch (e) {
+      showToast(filename + ': ' + e.message, 'error');
+      failed++;
+    }
   }
+  if (success > 0) showToast('成功上传 ' + success + ' 个文件' + (failed > 0 ? '，' + failed + ' 个失败' : ''));
+  resetUpload();
+  await refreshAll();
+  btnUpload.disabled = false;
+  btnUpload.textContent = '上传全部图片';
 }
 
 function resetUpload() {
-  currentFile = null;
+  currentFiles = [];
   uploadZone.classList.remove('hidden');
   uploadPreview.classList.add('hidden');
-  previewImage.src = '';
-  previewName.value = '';
   fileInput.value = '';
 }
 
@@ -814,8 +835,8 @@ function onSearchChange() {
 uploadZone.addEventListener('click', function () { fileInput.click(); });
 uploadZone.addEventListener('dragover', function (e) { e.preventDefault(); uploadZone.classList.add('drag-over'); });
 uploadZone.addEventListener('dragleave', function () { uploadZone.classList.remove('drag-over'); });
-uploadZone.addEventListener('drop', function (e) { e.preventDefault(); uploadZone.classList.remove('drag-over'); var file = e.dataTransfer.files[0]; if (file) handleFileSelect(file); });
-fileInput.addEventListener('change', function () { var file = fileInput.files[0]; if (file) handleFileSelect(file); });
+uploadZone.addEventListener('drop', function (e) { e.preventDefault(); uploadZone.classList.remove('drag-over'); if (e.dataTransfer.files.length > 0) handleFileSelect(e.dataTransfer.files); });
+fileInput.addEventListener('change', function () { if (fileInput.files.length > 0) handleFileSelect(fileInput.files); });
 
 btnCancel.addEventListener('click', resetUpload);
 btnUpload.addEventListener('click', doUpload);

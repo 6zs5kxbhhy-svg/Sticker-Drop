@@ -26,25 +26,21 @@
       <div class="upload-zone" id="uploadZone">
         <div class="upload-icon">📁</div>
         <p class="upload-title">拖拽图片到此处上传</p>
-        <p class="upload-hint">或点击此处选择文件 · 支持 PNG / JPG / GIF / WebP</p>
-        <input type="file" id="fileInput" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" hidden>
+        <p class="upload-hint">点击或拖拽即可批量上传，上传后可逐一重命名</p>
+        <input type="file" id="fileInput" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" multiple class="visually-hidden">
       </div>
       <div class="upload-preview hidden" id="uploadPreview">
-        <img id="previewImage" alt="预览">
-        <div class="preview-info">
-          <label class="preview-label">文件名</label>
-          <div class="preview-name-row">
-            <input type="text" id="previewName" class="input-name">
-            <span class="preview-ext" id="previewExt">.png</span>
-          </div>
-          <div class="preview-group-row">
+        <div class="batch-header">
+          <span class="batch-count" id="batchCount">已选 0 个文件</span>
+          <div class="batch-group-row">
             <label class="preview-label">上传到分组</label>
             <select id="previewGroup" class="input-group-select"></select>
           </div>
-          <div class="preview-actions">
-            <button class="btn btn-cancel" id="btnCancel">取消</button>
-            <button class="btn btn-upload" id="btnUpload">上传图片</button>
-          </div>
+        </div>
+        <div class="batch-list" id="batchList"></div>
+        <div class="preview-actions">
+          <button class="btn btn-cancel" id="btnCancel">取消</button>
+          <button class="btn btn-upload" id="btnUpload">上传全部图片</button>
         </div>
       </div>
     </section>
