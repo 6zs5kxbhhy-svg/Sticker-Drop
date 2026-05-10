@@ -1,5 +1,6 @@
 // ========== 设置管理 ==========
 const STORAGE_KEY = 'sticker-drop-settings';
+const GROUPS_KEY = 'sticker-drop-groups';
 
 const defaults = {
   token: '',
@@ -10,7 +11,7 @@ const defaults = {
 
 function loadSettings() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    var raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return { ...defaults, ...JSON.parse(raw) };
   } catch (e) { /* ignore */ }
   return { ...defaults };
@@ -23,61 +24,70 @@ function saveSettings(s) {
 let settings = loadSettings();
 
 // ========== DOM 引用 ==========
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
+var $ = function (sel) { return document.querySelector(sel); };
 
-const uploadZone = $('#uploadZone');
-const fileInput = $('#fileInput');
-const uploadPreview = $('#uploadPreview');
-const previewImage = $('#previewImage');
-const previewName = $('#previewName');
-const previewExt = $('#previewExt');
-const btnCancel = $('#btnCancel');
-const btnUpload = $('#btnUpload');
-const galleryGrid = $('#galleryGrid');
-const galleryLoading = $('#galleryLoading');
-const galleryEmpty = $('#galleryEmpty');
-const galleryNoSettings = $('#galleryNoSettings');
-const searchInput = $('#searchInput');
-const btnRefresh = $('#btnRefresh');
-const btnSettings = $('#btnSettings');
-const settingsModal = $('#settingsModal');
-const btnCloseModal = $('#btnCloseModal');
-const btnSaveSettings = $('#btnSaveSettings');
-const deleteModal = $('#deleteModal');
-const btnCloseDelete = $('#btnCloseDelete');
-const btnCancelDelete = $('#btnCancelDelete');
-const btnConfirmDelete = $('#btnConfirmDelete');
-const deleteFileName = $('#deleteFileName');
-const toastContainer = $('#toastContainer');
+var uploadZone = $('#uploadZone');
+var fileInput = $('#fileInput');
+var uploadPreview = $('#uploadPreview');
+var previewImage = $('#previewImage');
+var previewName = $('#previewName');
+var previewExt = $('#previewExt');
+var previewGroup = $('#previewGroup');
+var btnCancel = $('#btnCancel');
+var btnUpload = $('#btnUpload');
+var galleryGrid = $('#galleryGrid');
+var galleryLoading = $('#galleryLoading');
+var galleryEmpty = $('#galleryEmpty');
+var galleryNoSettings = $('#galleryNoSettings');
+var searchInput = $('#searchInput');
+var btnRefresh = $('#btnRefresh');
+var btnSettings = $('#btnSettings');
+var settingsModal = $('#settingsModal');
+var btnCloseModal = $('#btnCloseModal');
+var btnSaveSettings = $('#btnSaveSettings');
+var deleteModal = $('#deleteModal');
+var btnCloseDelete = $('#btnCloseDelete');
+var btnCancelDelete = $('#btnCancelDelete');
+var btnConfirmDelete = $('#btnConfirmDelete');
+var deleteFileName = $('#deleteFileName');
+var toastContainer = $('#toastContainer');
+var groupTabs = $('#groupTabs');
+var selectAllLabel = $('#selectAllLabel');
+var selectAllCheckbox = $('#selectAllCheckbox');
+var btnBatchCopy = $('#btnBatchCopy');
+var newGroupModal = $('#newGroupModal');
+var newGroupInput = $('#newGroupInput');
+var btnCreateGroup = $('#btnCreateGroup');
+var btnCloseNewGroup = $('#btnCloseNewGroup');
+var btnCancelNewGroup = $('#btnCancelNewGroup');
+var moveGroupModal = $('#moveGroupModal');
+var moveGroupSelect = $('#moveGroupSelect');
+var btnConfirmMove = $('#btnConfirmMove');
+var btnCloseMove = $('#btnCloseMove');
+var btnCancelMove = $('#btnCancelMove');
 
-// 设置表单
-const tokenInput = $('#token');
-const ownerInput = $('#owner');
-const repoInput = $('#repo');
-const branchInput = $('#branch');
+var tokenInput = $('#token');
+var ownerInput = $('#owner');
+var repoInput = $('#repo');
+var branchInput = $('#branch');
 
-// 批量选择
-const selectAllLabel = $('#selectAllLabel');
-const selectAllCheckbox = $('#selectAllCheckbox');
-const btnBatchCopy = $('#btnBatchCopy');
 var selectedImages = {};
+var currentFile = null;
+var pendingDelete = null;
+var currentGroup = 'all';
+var groups = [];
+var allImages = [];
+var pendingRename = null;
+var pendingMove = null;
 
-let currentFile = null;
-let pendingDelete = null;
-
-// ========== Toast 通知 ==========
+// ========== Toast ==========
 function showToast(message, type) {
   type = type || 'success';
   var toast = document.createElement('div');
   toast.className = 'toast' + (type === 'error' ? ' error' : '');
-  toast.innerHTML =
-    '<span>' + escapeHtml(message) + '</span>' +
-    '<button onclick="this.parentElement.remove()">&times;</button>';
+  toast.innerHTML = '<span>' + escapeHtml(message) + '</span><button onclick="this.parentElement.remove()">&times;</button>';
   toastContainer.appendChild(toast);
-  setTimeout(function () {
-    if (toast.parentElement) toast.remove();
-  }, 4000);
+  setTimeout(function () { if (toast.parentElement) toast.remove(); }, 4000);
 }
 
 function escapeHtml(str) {
@@ -89,24 +99,34 @@ function escapeHtml(str) {
 // ========== GitHub API ==========
 function apiHeaders() {
   var headers = { Accept: 'application/vnd.github+json' };
-  if (settings.token) {
-    headers.Authorization = 'Bearer ' + settings.token;
-  }
+  if (settings.token) headers.Authorization = 'Bearer ' + settings.token;
   return headers;
 }
 
-function imagesPath() {
-  return 'images';
+function imagesRoot() { return 'images'; }
+
+function folderPath(group) {
+  if (!group || group === 'default') return imagesRoot();
+  return imagesRoot() + '/' + group;
 }
 
-async function listImages() {
-  var url =
-    'https://api.github.com/repos/' +
-    encodeURIComponent(settings.owner) + '/' +
-    encodeURIComponent(settings.repo) + '/contents/' +
-    encodeURIComponent(imagesPath()) +
-    '?ref=' + encodeURIComponent(settings.branch || 'main');
+async function discoverGroups() {
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(imagesRoot()) + '?ref=' + encodeURIComponent(settings.branch || 'main');
+  var res = await fetch(url, { headers: apiHeaders() });
+  if (res.status === 404) return ['default'];
+  if (!res.ok) return ['default'];
+  var data = await res.json();
+  if (!Array.isArray(data)) return ['default'];
+  var dirs = [];
+  data.forEach(function (f) {
+    if (f.type === 'dir') dirs.push(f.name);
+  });
+  return ['default'].concat(dirs);
+}
 
+async function listImages(group) {
+  if (group === 'all') return listAllImages();
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(folderPath(group)) + '?ref=' + encodeURIComponent(settings.branch || 'main');
   var res = await fetch(url, { headers: apiHeaders() });
   if (res.status === 404) return [];
   if (!res.ok) {
@@ -116,80 +136,81 @@ async function listImages() {
   var data = await res.json();
   if (!Array.isArray(data)) return [];
   var exts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
-  return data.filter(function (f) {
-    if (f.type !== 'file') return false;
+  var results = [];
+  data.forEach(function (f) {
+    if (f.type !== 'file') return;
     var name = f.name.toLowerCase();
-    return exts.some(function (e) { return name.endsWith('.' + e); });
+    if (exts.some(function (e) { return name.endsWith('.' + e); })) {
+      f._group = group === 'default' ? null : group;
+      results.push(f);
+    }
   });
+  return results;
+}
+
+async function listAllImages() {
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(imagesRoot()) + '?ref=' + encodeURIComponent(settings.branch || 'main');
+  var res = await fetch(url, { headers: apiHeaders() });
+  if (res.status === 404) return [];
+  if (!res.ok) return [];
+  var data = await res.json();
+  if (!Array.isArray(data)) return [];
+  var exts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+  var all = [];
+  for (var i = 0; i < data.length; i++) {
+    var f = data[i];
+    if (f.type === 'file') {
+      var name2 = f.name.toLowerCase();
+      if (exts.some(function (e) { return name2.endsWith('.' + e); })) {
+        f._group = null;
+        all.push(f);
+      }
+    } else if (f.type === 'dir') {
+      try {
+        var sub = await listImages(f.name);
+        sub.forEach(function (s) { s._group = f.name; });
+        all = all.concat(sub);
+      } catch (e) { /* skip inaccessible dirs */ }
+    }
+  }
+  return all;
 }
 
 async function getFileContent(path) {
-  var url =
-    'https://api.github.com/repos/' +
-    encodeURIComponent(settings.owner) + '/' +
-    encodeURIComponent(settings.repo) + '/contents/' +
-    encodeURIComponent(path) +
-    '?ref=' + encodeURIComponent(settings.branch || 'main');
-
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(path) + '?ref=' + encodeURIComponent(settings.branch || 'main');
   var res = await fetch(url, { headers: apiHeaders() });
-  if (!res.ok) {
-    throw new Error('获取文件内容失败: HTTP ' + res.status);
-  }
+  if (!res.ok) throw new Error('获取文件内容失败: HTTP ' + res.status);
   return res.json();
 }
 
-async function uploadImageFile(filename, base64Content) {
-  var path = imagesPath() + '/' + filename;
-  var url =
-    'https://api.github.com/repos/' +
-    encodeURIComponent(settings.owner) + '/' +
-    encodeURIComponent(settings.repo) + '/contents/' +
-    encodeURIComponent(path);
-
+async function uploadImageFile(filename, base64Content, group) {
+  var path = folderPath(group) + '/' + filename;
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(path);
   var res = await fetch(url, {
     method: 'PUT',
     headers: apiHeaders(),
-    body: JSON.stringify({
-      message: 'Upload sticker: ' + filename,
-      content: base64Content,
-      branch: settings.branch || 'main',
-    }),
+    body: JSON.stringify({ message: 'Upload sticker: ' + filename, content: base64Content, branch: settings.branch || 'main' }),
   });
-
-  if (res.status === 409) {
-    throw new Error('文件 "' + filename + '" 已存在，请修改文件名');
-  }
+  if (res.status === 409) throw new Error('文件 "' + filename + '" 已存在，请修改文件名');
   if (res.status === 422) {
     var errData = await res.json().catch(function () { return {}; });
     throw new Error(errData.message || '上传失败，可能是文件名不合法');
   }
   if (!res.ok) {
     var errData2 = await res.json().catch(function () { return {}; });
-    if (res.status === 401) {
-      throw new Error('Token 无效或已过期，请在设置中更新');
-    }
+    if (res.status === 401) throw new Error('Token 无效或已过期，请在设置中更新');
     throw new Error(errData2.message || '上传失败: HTTP ' + res.status);
   }
   return res.json();
 }
 
 async function deleteImageFile(path, sha) {
-  var url =
-    'https://api.github.com/repos/' +
-    encodeURIComponent(settings.owner) + '/' +
-    encodeURIComponent(settings.repo) + '/contents/' +
-    encodeURIComponent(path);
-
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(path);
   var res = await fetch(url, {
     method: 'DELETE',
     headers: apiHeaders(),
-    body: JSON.stringify({
-      message: 'Delete sticker: ' + path.split('/').pop(),
-      sha: sha,
-      branch: settings.branch || 'main',
-    }),
+    body: JSON.stringify({ message: 'Delete sticker: ' + path.split('/').pop(), sha: sha, branch: settings.branch || 'main' }),
   });
-
   if (!res.ok) {
     var errData = await res.json().catch(function () { return {}; });
     throw new Error(errData.message || '删除失败: HTTP ' + res.status);
@@ -197,49 +218,62 @@ async function deleteImageFile(path, sha) {
 }
 
 async function renameImageFile(oldPath, oldSha, newName) {
-  // 1. 获取旧文件内容
   var oldFile = await getFileContent(oldPath);
-
-  // 2. 创建新文件
   var dir = oldPath.substring(0, oldPath.lastIndexOf('/'));
   var newPath = dir + '/' + newName;
-  var newUrl =
-    'https://api.github.com/repos/' +
-    encodeURIComponent(settings.owner) + '/' +
-    encodeURIComponent(settings.repo) + '/contents/' +
-    encodeURIComponent(newPath);
-
+  var newUrl = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(newPath);
   var createRes = await fetch(newUrl, {
     method: 'PUT',
     headers: apiHeaders(),
-    body: JSON.stringify({
-      message: 'Rename: ' + oldPath.split('/').pop() + ' → ' + newName,
-      content: oldFile.content,
-      branch: settings.branch || 'main',
-    }),
+    body: JSON.stringify({ message: 'Rename: ' + oldPath.split('/').pop() + ' → ' + newName, content: oldFile.content, branch: settings.branch || 'main' }),
   });
-
-  if (createRes.status === 409) {
-    throw new Error('文件名 "' + newName + '" 已存在，请换一个名字');
-  }
+  if (createRes.status === 409) throw new Error('文件名 "' + newName + '" 已存在，请换一个名字');
   if (!createRes.ok) {
     var err = await createRes.json().catch(function () { return {}; });
     throw new Error(err.message || '重命名失败');
   }
-
-  // 3. 删除旧文件
   await deleteImageFile(oldPath, oldSha);
 }
 
-function getStickerUrl(filename) {
-  return (
-    'https://' +
-    encodeURIComponent(settings.owner) +
-    '.github.io/' +
-    encodeURIComponent(settings.repo) +
-    '/' + imagesPath() + '/' +
-    encodeURIComponent(filename)
-  );
+async function moveImageFile(oldPath, oldSha, newGroup) {
+  var oldFile = await getFileContent(oldPath);
+  var filename = oldPath.split('/').pop();
+  var newPath = folderPath(newGroup) + '/' + filename;
+  var newUrl = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(newPath);
+  var createRes = await fetch(newUrl, {
+    method: 'PUT',
+    headers: apiHeaders(),
+    body: JSON.stringify({ message: 'Move: ' + filename + ' → ' + (newGroup || '默认'), content: oldFile.content, branch: settings.branch || 'main' }),
+  });
+  if (createRes.status === 409) throw new Error('目标分组已存在同名文件 "' + filename + '"');
+  if (!createRes.ok) {
+    var err = await createRes.json().catch(function () { return {}; });
+    throw new Error(err.message || '移动失败');
+  }
+  await deleteImageFile(oldPath, oldSha);
+}
+
+async function createGroupDir(name) {
+  var path = imagesRoot() + '/' + name + '/.gitkeep';
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(path);
+  var res = await fetch(url, {
+    method: 'PUT',
+    headers: apiHeaders(),
+    body: JSON.stringify({ message: 'Create group: ' + name, content: '', branch: settings.branch || 'main' }),
+  });
+  if (res.status === 409) throw new Error('分组 "' + name + '" 已存在');
+  if (!res.ok) {
+    var err = await res.json().catch(function () { return {}; });
+    throw new Error(err.message || '创建分组失败');
+  }
+}
+
+function getStickerUrl(filename, group) {
+  var base = 'https://' + encodeURIComponent(settings.owner) + '.github.io/' + encodeURIComponent(settings.repo) + '/';
+  if (group && group !== 'default') {
+    return base + imagesRoot() + '/' + encodeURIComponent(group) + '/' + encodeURIComponent(filename);
+  }
+  return base + imagesRoot() + '/' + encodeURIComponent(filename);
 }
 
 // ========== 文件处理 ==========
@@ -258,27 +292,27 @@ function fileToBase64(file) {
 
 function handleFileSelect(file) {
   if (!file) return;
-  if (!file.type.startsWith('image/')) {
-    showToast('请选择图片文件', 'error');
-    return;
-  }
-  if (file.size > 10 * 1024 * 1024) {
-    showToast('文件大小不能超过 10MB', 'error');
-    return;
-  }
-
+  if (!file.type.startsWith('image/')) { showToast('请选择图片文件', 'error'); return; }
+  if (file.size > 10 * 1024 * 1024) { showToast('文件大小不能超过 10MB', 'error'); return; }
   currentFile = file;
-
-  // 解析文件名
   var dot = file.name.lastIndexOf('.');
   var baseName = dot >= 0 ? file.name.substring(0, dot) : file.name;
   var ext = dot >= 0 ? file.name.substring(dot) : '.png';
-
-  // 预览图片
   var url = URL.createObjectURL(file);
   previewImage.src = url;
   previewName.value = baseName;
   previewExt.textContent = ext;
+
+  // 填充分组下拉
+  previewGroup.innerHTML = '<option value="default">默认分组</option>';
+  groups.forEach(function (g) {
+    if (g !== 'default') {
+      previewGroup.innerHTML += '<option value="' + escapeHtml(g) + '">' + escapeHtml(g) + '</option>';
+    }
+  });
+  if (currentGroup !== 'all' && currentGroup !== 'default') {
+    previewGroup.value = currentGroup;
+  }
 
   uploadZone.classList.add('hidden');
   uploadPreview.classList.remove('hidden');
@@ -287,22 +321,19 @@ function handleFileSelect(file) {
 async function doUpload() {
   if (!currentFile) return;
   var name = previewName.value.trim();
-  if (!name) {
-    showToast('请输入文件名', 'error');
-    return;
-  }
+  if (!name) { showToast('请输入文件名', 'error'); return; }
   var ext = previewExt.textContent;
   var filename = name + ext;
+  var group = previewGroup.value;
 
   btnUpload.disabled = true;
   btnUpload.textContent = '上传中...';
-
   try {
     var base64 = await fileToBase64(currentFile);
-    await uploadImageFile(filename, base64);
-    showToast('上传成功！链接已可用');
+    await uploadImageFile(filename, base64, group);
+    showToast('上传成功！');
     resetUpload();
-    await loadGallery();
+    await refreshAll();
   } catch (e) {
     showToast(e.message, 'error');
   } finally {
@@ -320,24 +351,53 @@ function resetUpload() {
   fileInput.value = '';
 }
 
-// ========== 图库 ==========
-var allImages = [];
+// ========== 分组标签 ==========
+function renderGroupTabs() {
+  var html = '';
+  html += '<button class="group-tab' + (currentGroup === 'all' ? ' active' : '') + '" data-group="all">全部</button>';
+  groups.forEach(function (g) {
+    var label = g === 'default' ? '默认' : g;
+    html += '<button class="group-tab' + (currentGroup === g ? ' active' : '') + '" data-group="' + escapeHtml(g) + '">' + escapeHtml(label) + '</button>';
+  });
+  html += '<button class="group-tab group-tab-add" id="btnNewGroup">+ 新建分组</button>';
+  groupTabs.innerHTML = html;
 
-async function loadGallery() {
-  if (!settings.token && !settings.owner) {
-    showEmptyState('noSettings');
-    return;
-  }
+  // 绑定事件
+  groupTabs.querySelectorAll('[data-group]').forEach(function (btn) {
+    btn.addEventListener('click', function () { switchGroup(this.getAttribute('data-group')); });
+  });
+  var btnNew = document.getElementById('btnNewGroup');
+  if (btnNew) btnNew.addEventListener('click', openNewGroupModal);
+}
 
-  showEmptyState('loading');
-
-  // 重置选择状态
+async function switchGroup(group) {
+  currentGroup = group;
   selectedImages = {};
   selectAllCheckbox.checked = false;
   updateBatchUI();
+  await loadGallery();
+  renderGroupTabs();
+}
 
+// ========== 图库 ==========
+async function refreshAll() {
+  groups = await discoverGroups();
+  renderGroupTabs();
+  if (currentGroup !== 'all' && groups.indexOf(currentGroup) < 0) {
+    currentGroup = 'all';
+    renderGroupTabs();
+  }
+  await loadGallery();
+}
+
+async function loadGallery() {
+  if (!settings.token && !settings.owner) { showEmptyState('noSettings'); return; }
+  showEmptyState('loading');
+  selectedImages = {};
+  selectAllCheckbox.checked = false;
+  updateBatchUI();
   try {
-    allImages = await listImages();
+    allImages = await listImages(currentGroup);
     if (allImages.length === 0) {
       showEmptyState('empty');
     } else {
@@ -345,7 +405,7 @@ async function loadGallery() {
       renderCards(filterImages());
     }
   } catch (e) {
-    showToast('加载图库失败: ' + e.message, 'error');
+    showToast('加载失败: ' + e.message, 'error');
     showEmptyState('empty');
   }
 }
@@ -366,21 +426,15 @@ function hideAllStates() {
 function filterImages() {
   var q = searchInput.value.trim().toLowerCase();
   if (!q) return allImages;
-  return allImages.filter(function (img) {
-    return img.name.toLowerCase().indexOf(q) >= 0;
-  });
+  return allImages.filter(function (img) { return img.name.toLowerCase().indexOf(q) >= 0; });
 }
 
 function renderCards(images) {
-  // 清除旧的卡片（保留状态元素）
   var oldCards = galleryGrid.querySelectorAll('.sticker-card');
   oldCards.forEach(function (c) { c.remove(); });
-
   images.forEach(function (img) {
-    var card = createCard(img);
-    galleryGrid.appendChild(card);
+    galleryGrid.appendChild(createCard(img));
   });
-
   if (images.length === 0 && allImages.length > 0) {
     var noResult = document.createElement('div');
     noResult.className = 'gallery-status';
@@ -405,19 +459,24 @@ function createCard(img) {
   imgEl.alt = img.name;
   imgEl.loading = 'lazy';
   imgEl.title = '点击复制链接';
-  imgEl.addEventListener('click', function () { copyUrl(img.name); });
+  imgEl.addEventListener('click', function () { copyUrl(img.name, img._group, null); });
 
   var checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
   checkbox.className = 'card-checkbox';
   checkbox.title = '选择此表情包';
-  checkbox.addEventListener('click', function (e) {
-    e.stopPropagation();
-    toggleSelect(img, checkbox);
-  });
+  checkbox.addEventListener('click', function (e) { e.stopPropagation(); toggleSelect(img, checkbox); });
 
   imgWrap.appendChild(imgEl);
   imgWrap.appendChild(checkbox);
+
+  // 分组标签（仅在"全部"视图显示）
+  if (currentGroup === 'all' && img._group) {
+    var groupTag = document.createElement('span');
+    groupTag.className = 'card-group-tag';
+    groupTag.textContent = img._group;
+    imgWrap.appendChild(groupTag);
+  }
 
   var body = document.createElement('div');
   body.className = 'card-body';
@@ -426,6 +485,7 @@ function createCard(img) {
   nameEl.className = 'card-name';
   nameEl.textContent = img.name;
 
+  // 行内重命名
   var editRow = document.createElement('div');
   editRow.className = 'card-rename-row hidden';
   var editInput = document.createElement('input');
@@ -433,14 +493,12 @@ function createCard(img) {
   editInput.type = 'text';
   var extSpan = document.createElement('span');
   extSpan.className = 'card-rename-ext';
-
   var editOk = document.createElement('button');
   editOk.className = 'btn-rename-ok';
   editOk.textContent = '✓';
   var editCancel = document.createElement('button');
   editCancel.className = 'btn-rename-cancel';
   editCancel.textContent = '✗';
-
   editRow.appendChild(editInput);
   editRow.appendChild(extSpan);
   editRow.appendChild(editOk);
@@ -452,26 +510,26 @@ function createCard(img) {
   var copyBtn = document.createElement('button');
   copyBtn.className = 'btn-copy';
   copyBtn.textContent = '复制链接';
-  copyBtn.addEventListener('click', function () { copyUrl(img.name, copyBtn); });
+  copyBtn.addEventListener('click', function () { copyUrl(img.name, img._group, copyBtn); });
 
   var renameBtn = document.createElement('button');
   renameBtn.className = 'btn-rename-card';
   renameBtn.textContent = '重命名';
-  renameBtn.addEventListener('click', function (e) {
-    e.stopPropagation();
-    startRename(card, img);
-  });
+  renameBtn.addEventListener('click', function (e) { e.stopPropagation(); startRename(card, img); });
+
+  var moveBtn = document.createElement('button');
+  moveBtn.className = 'btn-move-card';
+  moveBtn.textContent = '移动';
+  moveBtn.addEventListener('click', function (e) { e.stopPropagation(); openMoveModal(img); });
 
   var deleteBtn = document.createElement('button');
   deleteBtn.className = 'btn-delete-card';
   deleteBtn.textContent = '删除';
-  deleteBtn.addEventListener('click', function (e) {
-    e.stopPropagation();
-    openDeleteModal(img);
-  });
+  deleteBtn.addEventListener('click', function (e) { e.stopPropagation(); openDeleteModal(img); });
 
   actions.appendChild(copyBtn);
   actions.appendChild(renameBtn);
+  actions.appendChild(moveBtn);
   actions.appendChild(deleteBtn);
   body.appendChild(nameEl);
   body.appendChild(editRow);
@@ -481,6 +539,7 @@ function createCard(img) {
   return card;
 }
 
+// ========== 批量选择 ==========
 function toggleSelect(img, checkbox) {
   if (checkbox.checked) {
     selectedImages[img.path] = img;
@@ -514,7 +573,6 @@ function toggleSelectAll() {
       cb.checked = checked;
       if (checked) {
         card.classList.add('selected');
-        // 从 allImages 中找到对应数据
         var found = allImages.find(function (img) { return img.path === path; });
         if (found) selectedImages[path] = found;
       } else {
@@ -529,12 +587,11 @@ function toggleSelectAll() {
 function batchCopy() {
   var paths = Object.keys(selectedImages);
   if (paths.length === 0) return;
-
   var lines = paths.map(function (path) {
     var img = selectedImages[path];
-    return img.name + ': ' + getStickerUrl(img.name);
+    var prefix = img._group ? '[' + img._group + '] ' : '';
+    return prefix + img.name + ': ' + getStickerUrl(img.name, img._group);
   });
-
   var text = lines.join('\n');
   try {
     awaitCopy(text);
@@ -548,7 +605,6 @@ function awaitCopy(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     return navigator.clipboard.writeText(text);
   }
-  // 降级方案
   return new Promise(function (resolve, reject) {
     try {
       var input = document.createElement('textarea');
@@ -560,35 +616,26 @@ function awaitCopy(text) {
       document.execCommand('copy');
       document.body.removeChild(input);
       resolve();
-    } catch (e) {
-      reject(e);
-    }
+    } catch (e) { reject(e); }
   });
 }
 
-var pendingRename = null;
-
+// ========== 重命名 ==========
 function startRename(card, img) {
-  // 如果已经在编辑另一个，先取消
   if (pendingRename) cancelRename();
-
   var nameEl = card.querySelector('.card-name');
   var editRow = card.querySelector('.card-rename-row');
   var editInput = editRow.querySelector('.card-rename-input');
   var extSpan = editRow.querySelector('.card-rename-ext');
-
   var dot = img.name.lastIndexOf('.');
   var baseName = dot >= 0 ? img.name.substring(0, dot) : img.name;
   var ext = dot >= 0 ? img.name.substring(dot) : '';
-
   editInput.value = baseName;
   extSpan.textContent = ext;
-
   nameEl.classList.add('hidden');
   editRow.classList.remove('hidden');
   editInput.focus();
   editInput.select();
-
   pendingRename = { card: card, img: img, nameEl: nameEl, editRow: editRow, editInput: editInput, ext: ext };
 }
 
@@ -603,16 +650,9 @@ async function confirmRename() {
   if (!pendingRename) return;
   var r = pendingRename;
   var newBase = r.editInput.value.trim();
-  if (!newBase) {
-    showToast('请输入文件名', 'error');
-    return;
-  }
+  if (!newBase) { showToast('请输入文件名', 'error'); return; }
   var newName = newBase + r.ext;
-  if (newName === r.img.name) {
-    cancelRename();
-    return;
-  }
-
+  if (newName === r.img.name) { cancelRename(); return; }
   r.editInput.disabled = true;
   try {
     await renameImageFile(r.img.path, r.img.sha, newName);
@@ -626,21 +666,18 @@ async function confirmRename() {
   }
 }
 
-async function copyUrl(filename, btn) {
-  var url = getStickerUrl(filename);
+// ========== 复制链接 ==========
+async function copyUrl(filename, group, btn) {
+  var url = getStickerUrl(filename, group);
   try {
     await navigator.clipboard.writeText(url);
     if (btn) {
       btn.textContent = '已复制!';
       btn.classList.add('copied');
-      setTimeout(function () {
-        btn.textContent = '复制链接';
-        btn.classList.remove('copied');
-      }, 1500);
+      setTimeout(function () { btn.textContent = '复制链接'; btn.classList.remove('copied'); }, 1500);
     }
     showToast('链接已复制到剪贴板');
   } catch (e) {
-    // 降级方案：选中文本
     var input = document.createElement('input');
     input.value = url;
     document.body.appendChild(input);
@@ -676,7 +713,70 @@ async function confirmDelete() {
   }
 }
 
-// ========== 设置弹窗 ==========
+// ========== 移动分组 ==========
+function openMoveModal(img) {
+  pendingMove = img;
+  var html = '';
+  groups.forEach(function (g) {
+    var label = g === 'default' ? '默认分组' : g;
+    var currentGroupName = img._group || 'default';
+    var selected = g === currentGroupName ? ' selected' : '';
+    html += '<option value="' + escapeHtml(g) + '"' + selected + '>' + escapeHtml(label) + '</option>';
+  });
+  moveGroupSelect.innerHTML = html;
+  moveGroupModal.showModal();
+}
+
+async function confirmMove() {
+  if (!pendingMove) return;
+  var newGroup = moveGroupSelect.value;
+  var currentGroupName = pendingMove._group || 'default';
+  if (newGroup === currentGroupName) { moveGroupModal.close(); return; }
+  btnConfirmMove.disabled = true;
+  btnConfirmMove.textContent = '移动中...';
+  try {
+    await moveImageFile(pendingMove.path, pendingMove.sha, newGroup);
+    showToast('已移动到: ' + (newGroup === 'default' ? '默认分组' : newGroup));
+    moveGroupModal.close();
+    pendingMove = null;
+    await refreshAll();
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    btnConfirmMove.disabled = false;
+    btnConfirmMove.textContent = '移动';
+  }
+}
+
+// ========== 新建分组 ==========
+function openNewGroupModal() {
+  newGroupInput.value = '';
+  newGroupModal.showModal();
+  setTimeout(function () { newGroupInput.focus(); }, 100);
+}
+
+async function createNewGroup() {
+  var name = newGroupInput.value.trim();
+  if (!name) { showToast('请输入分组名称', 'error'); return; }
+  if (!/^[\w一-龥]+$/.test(name)) { showToast('分组名只能包含中英文、数字和下划线', 'error'); return; }
+  if (name === 'default' || name === 'all') { showToast('分组名不能使用保留字', 'error'); return; }
+  btnCreateGroup.disabled = true;
+  btnCreateGroup.textContent = '创建中...';
+  try {
+    await createGroupDir(name);
+    showToast('分组 "' + name + '" 已创建');
+    newGroupModal.close();
+    await refreshAll();
+    switchGroup(name);
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    btnCreateGroup.disabled = false;
+    btnCreateGroup.textContent = '创建';
+  }
+}
+
+// ========== 设置 ==========
 function openSettings() {
   tokenInput.value = settings.token;
   ownerInput.value = settings.owner;
@@ -693,7 +793,7 @@ function saveSettingsForm() {
   saveSettings(settings);
   settingsModal.close();
   showToast('设置已保存');
-  loadGallery();
+  refreshAll();
 }
 
 // ========== 搜索 ==========
@@ -711,31 +811,14 @@ function onSearchChange() {
 
 // ========== 事件绑定 ==========
 uploadZone.addEventListener('click', function () { fileInput.click(); });
-uploadZone.addEventListener('dragover', function (e) {
-  e.preventDefault();
-  uploadZone.classList.add('drag-over');
-});
-uploadZone.addEventListener('dragleave', function () {
-  uploadZone.classList.remove('drag-over');
-});
-uploadZone.addEventListener('drop', function (e) {
-  e.preventDefault();
-  uploadZone.classList.remove('drag-over');
-  var file = e.dataTransfer.files[0];
-  if (file) handleFileSelect(file);
-});
-fileInput.addEventListener('change', function () {
-  var file = fileInput.files[0];
-  if (file) handleFileSelect(file);
-});
+uploadZone.addEventListener('dragover', function (e) { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', function () { uploadZone.classList.remove('drag-over'); });
+uploadZone.addEventListener('drop', function (e) { e.preventDefault(); uploadZone.classList.remove('drag-over'); var file = e.dataTransfer.files[0]; if (file) handleFileSelect(file); });
+fileInput.addEventListener('change', function () { var file = fileInput.files[0]; if (file) handleFileSelect(file); });
 
 btnCancel.addEventListener('click', resetUpload);
 btnUpload.addEventListener('click', doUpload);
-btnRefresh.addEventListener('click', function () {
-  selectedImages = {};
-  updateBatchUI();
-  loadGallery();
-});
+btnRefresh.addEventListener('click', function () { selectedImages = {}; updateBatchUI(); refreshAll(); });
 searchInput.addEventListener('input', onSearchChange);
 selectAllCheckbox.addEventListener('change', toggleSelectAll);
 btnBatchCopy.addEventListener('click', batchCopy);
@@ -748,47 +831,41 @@ btnCloseDelete.addEventListener('click', function () { deleteModal.close(); });
 btnCancelDelete.addEventListener('click', function () { deleteModal.close(); });
 btnConfirmDelete.addEventListener('click', confirmDelete);
 
+btnCreateGroup.addEventListener('click', createNewGroup);
+btnCloseNewGroup.addEventListener('click', function () { newGroupModal.close(); });
+btnCancelNewGroup.addEventListener('click', function () { newGroupModal.close(); });
+
+btnConfirmMove.addEventListener('click', confirmMove);
+btnCloseMove.addEventListener('click', function () { moveGroupModal.close(); });
+btnCancelMove.addEventListener('click', function () { moveGroupModal.close(); });
+
 // 点击 Modal 背景关闭
-settingsModal.addEventListener('click', function (e) {
-  if (e.target === settingsModal) settingsModal.close();
-});
-deleteModal.addEventListener('click', function (e) {
-  if (e.target === deleteModal) deleteModal.close();
+[settingsModal, deleteModal, newGroupModal, moveGroupModal].forEach(function (m) {
+  m.addEventListener('click', function (e) { if (e.target === m) m.close(); });
 });
 
-// 键盘快捷键：Escape 关闭弹窗，Enter 保存设置
 settingsModal.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
-    e.preventDefault();
-    saveSettingsForm();
-  }
+  if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); saveSettingsForm(); }
+});
+newGroupModal.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') { e.preventDefault(); createNewGroup(); }
 });
 
-// 重命名事件的全局委托
+// 全局事件委托
 document.addEventListener('click', function (e) {
-  if (e.target.classList.contains('btn-rename-ok')) {
-    confirmRename();
-  } else if (e.target.classList.contains('btn-rename-cancel')) {
-    cancelRename();
-  }
+  if (e.target.classList.contains('btn-rename-ok')) confirmRename();
+  else if (e.target.classList.contains('btn-rename-cancel')) cancelRename();
 });
 document.addEventListener('keydown', function (e) {
-  if (!pendingRename) return;
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    confirmRename();
-  } else if (e.key === 'Escape') {
-    cancelRename();
+  if (pendingRename) {
+    if (e.key === 'Enter') { e.preventDefault(); confirmRename(); }
+    else if (e.key === 'Escape') cancelRename();
   }
 });
 
 // ========== 初始化 ==========
 function init() {
-  if (settings.token) {
-    loadGallery();
-  } else {
-    showEmptyState('noSettings');
-  }
+  if (settings.token) refreshAll();
+  else showEmptyState('noSettings');
 }
-
 init();
