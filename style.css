@@ -100,6 +100,31 @@ a:hover {
   color: var(--primary);
 }
 
+.btn-batch {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+}
+.btn-batch:hover {
+  background: var(--primary-dark);
+  box-shadow: 0 4px 15px rgba(108,92,231,0.35);
+}
+
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.select-all-label input {
+  accent-color: var(--primary);
+  width: 16px;
+  height: 16px;
+}
+
 .btn-settings {
   background: none;
   border: none;
@@ -328,10 +353,18 @@ a:hover {
   transition: all 0.25s;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 .sticker-card:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-lg);
+}
+.sticker-card.selected {
+  box-shadow: 0 0 0 2px var(--primary), 0 4px 16px rgba(108,92,231,0.3);
+}
+
+.card-img-wrap {
+  position: relative;
 }
 
 .card-image {
@@ -342,6 +375,23 @@ a:hover {
   padding: 12px;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
+  display: block;
+}
+
+.card-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: var(--primary);
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.card-checkbox:hover,
+.card-checkbox:checked {
+  opacity: 1;
 }
 
 .card-body {
