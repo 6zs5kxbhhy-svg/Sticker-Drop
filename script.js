@@ -117,6 +117,21 @@ async function listImages() {
   });
 }
 
+async function getFileContent(path) {
+  var url =
+    'https://api.github.com/repos/' +
+    encodeURIComponent(settings.owner) + '/' +
+    encodeURIComponent(settings.repo) + '/contents/' +
+    encodeURIComponent(path) +
+    '?ref=' + encodeURIComponent(settings.branch || 'main');
+
+  var res = await fetch(url, { headers: apiHeaders() });
+  if (!res.ok) {
+    throw new Error('获取文件内容失败: HTTP ' + res.status);
+  }
+  return res.json();
+}
+
 async function uploadImageFile(filename, base64Content) {
   var path = imagesPath() + '/' + filename;
   var url =
@@ -173,6 +188,41 @@ async function deleteImageFile(path, sha) {
     var errData = await res.json().catch(function () { return {}; });
     throw new Error(errData.message || '删除失败: HTTP ' + res.status);
   }
+}
+
+async function renameImageFile(oldPath, oldSha, newName) {
+  // 1. 获取旧文件内容
+  var oldFile = await getFileContent(oldPath);
+
+  // 2. 创建新文件
+  var dir = oldPath.substring(0, oldPath.lastIndexOf('/'));
+  var newPath = dir + '/' + newName;
+  var newUrl =
+    'https://api.github.com/repos/' +
+    encodeURIComponent(settings.owner) + '/' +
+    encodeURIComponent(settings.repo) + '/contents/' +
+    encodeURIComponent(newPath);
+
+  var createRes = await fetch(newUrl, {
+    method: 'PUT',
+    headers: apiHeaders(),
+    body: JSON.stringify({
+      message: 'Rename: ' + oldPath.split('/').pop() + ' → ' + newName,
+      content: oldFile.content,
+      branch: settings.branch || 'main',
+    }),
+  });
+
+  if (createRes.status === 409) {
+    throw new Error('文件名 "' + newName + '" 已存在，请换一个名字');
+  }
+  if (!createRes.ok) {
+    var err = await createRes.json().catch(function () { return {}; });
+    throw new Error(err.message || '重命名失败');
+  }
+
+  // 3. 删除旧文件
+  await deleteImageFile(oldPath, oldSha);
 }
 
 function getStickerUrl(filename) {
@@ -332,6 +382,8 @@ function renderCards(images) {
 function createCard(img) {
   var card = document.createElement('div');
   card.className = 'sticker-card';
+  card.setAttribute('data-path', img.path);
+  card.setAttribute('data-sha', img.sha);
 
   var imgEl = document.createElement('img');
   imgEl.className = 'card-image';
@@ -348,6 +400,26 @@ function createCard(img) {
   nameEl.className = 'card-name';
   nameEl.textContent = img.name;
 
+  var editRow = document.createElement('div');
+  editRow.className = 'card-rename-row hidden';
+  var editInput = document.createElement('input');
+  editInput.className = 'card-rename-input';
+  editInput.type = 'text';
+  var extSpan = document.createElement('span');
+  extSpan.className = 'card-rename-ext';
+
+  var editOk = document.createElement('button');
+  editOk.className = 'btn-rename-ok';
+  editOk.textContent = '✓';
+  var editCancel = document.createElement('button');
+  editCancel.className = 'btn-rename-cancel';
+  editCancel.textContent = '✗';
+
+  editRow.appendChild(editInput);
+  editRow.appendChild(extSpan);
+  editRow.appendChild(editOk);
+  editRow.appendChild(editCancel);
+
   var actions = document.createElement('div');
   actions.className = 'card-actions';
 
@@ -355,6 +427,14 @@ function createCard(img) {
   copyBtn.className = 'btn-copy';
   copyBtn.textContent = '复制链接';
   copyBtn.addEventListener('click', function () { copyUrl(img.name, copyBtn); });
+
+  var renameBtn = document.createElement('button');
+  renameBtn.className = 'btn-rename-card';
+  renameBtn.textContent = '重命名';
+  renameBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    startRename(card, img);
+  });
 
   var deleteBtn = document.createElement('button');
   deleteBtn.className = 'btn-delete-card';
@@ -365,12 +445,74 @@ function createCard(img) {
   });
 
   actions.appendChild(copyBtn);
+  actions.appendChild(renameBtn);
   actions.appendChild(deleteBtn);
   body.appendChild(nameEl);
+  body.appendChild(editRow);
   body.appendChild(actions);
   card.appendChild(imgEl);
   card.appendChild(body);
   return card;
+}
+
+var pendingRename = null;
+
+function startRename(card, img) {
+  // 如果已经在编辑另一个，先取消
+  if (pendingRename) cancelRename();
+
+  var nameEl = card.querySelector('.card-name');
+  var editRow = card.querySelector('.card-rename-row');
+  var editInput = editRow.querySelector('.card-rename-input');
+  var extSpan = editRow.querySelector('.card-rename-ext');
+
+  var dot = img.name.lastIndexOf('.');
+  var baseName = dot >= 0 ? img.name.substring(0, dot) : img.name;
+  var ext = dot >= 0 ? img.name.substring(dot) : '';
+
+  editInput.value = baseName;
+  extSpan.textContent = ext;
+
+  nameEl.classList.add('hidden');
+  editRow.classList.remove('hidden');
+  editInput.focus();
+  editInput.select();
+
+  pendingRename = { card: card, img: img, nameEl: nameEl, editRow: editRow, editInput: editInput, ext: ext };
+}
+
+function cancelRename() {
+  if (!pendingRename) return;
+  pendingRename.nameEl.classList.remove('hidden');
+  pendingRename.editRow.classList.add('hidden');
+  pendingRename = null;
+}
+
+async function confirmRename() {
+  if (!pendingRename) return;
+  var r = pendingRename;
+  var newBase = r.editInput.value.trim();
+  if (!newBase) {
+    showToast('请输入文件名', 'error');
+    return;
+  }
+  var newName = newBase + r.ext;
+  if (newName === r.img.name) {
+    cancelRename();
+    return;
+  }
+
+  r.editInput.disabled = true;
+  try {
+    await renameImageFile(r.img.path, r.img.sha, newName);
+    showToast('已重命名为: ' + newName);
+    cancelRename();
+    await loadGallery();
+  } catch (e) {
+    showToast(e.message, 'error');
+    r.editInput.disabled = false;
+    r.editInput.focus();
+  }
 }
 
 async function copyUrl(filename, btn) {
@@ -502,6 +644,24 @@ settingsModal.addEventListener('keydown', function (e) {
   if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
     e.preventDefault();
     saveSettingsForm();
+  }
+});
+
+// 重命名事件的全局委托
+document.addEventListener('click', function (e) {
+  if (e.target.classList.contains('btn-rename-ok')) {
+    confirmRename();
+  } else if (e.target.classList.contains('btn-rename-cancel')) {
+    cancelRename();
+  }
+});
+document.addEventListener('keydown', function (e) {
+  if (!pendingRename) return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    confirmRename();
+  } else if (e.key === 'Escape') {
+    cancelRename();
   }
 });
 
