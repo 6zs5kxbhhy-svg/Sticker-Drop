@@ -57,6 +57,12 @@ const ownerInput = $('#owner');
 const repoInput = $('#repo');
 const branchInput = $('#branch');
 
+// 批量选择
+const selectAllLabel = $('#selectAllLabel');
+const selectAllCheckbox = $('#selectAllCheckbox');
+const btnBatchCopy = $('#btnBatchCopy');
+var selectedImages = {};
+
 let currentFile = null;
 let pendingDelete = null;
 
@@ -325,6 +331,11 @@ async function loadGallery() {
 
   showEmptyState('loading');
 
+  // 重置选择状态
+  selectedImages = {};
+  selectAllCheckbox.checked = false;
+  updateBatchUI();
+
   try {
     allImages = await listImages();
     if (allImages.length === 0) {
@@ -385,6 +396,9 @@ function createCard(img) {
   card.setAttribute('data-path', img.path);
   card.setAttribute('data-sha', img.sha);
 
+  var imgWrap = document.createElement('div');
+  imgWrap.className = 'card-img-wrap';
+
   var imgEl = document.createElement('img');
   imgEl.className = 'card-image';
   imgEl.src = img.download_url;
@@ -392,6 +406,18 @@ function createCard(img) {
   imgEl.loading = 'lazy';
   imgEl.title = '点击复制链接';
   imgEl.addEventListener('click', function () { copyUrl(img.name); });
+
+  var checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.className = 'card-checkbox';
+  checkbox.title = '选择此表情包';
+  checkbox.addEventListener('click', function (e) {
+    e.stopPropagation();
+    toggleSelect(img, checkbox);
+  });
+
+  imgWrap.appendChild(imgEl);
+  imgWrap.appendChild(checkbox);
 
   var body = document.createElement('div');
   body.className = 'card-body';
@@ -450,9 +476,94 @@ function createCard(img) {
   body.appendChild(nameEl);
   body.appendChild(editRow);
   body.appendChild(actions);
-  card.appendChild(imgEl);
+  card.appendChild(imgWrap);
   card.appendChild(body);
   return card;
+}
+
+function toggleSelect(img, checkbox) {
+  if (checkbox.checked) {
+    selectedImages[img.path] = img;
+    checkbox.parentElement.parentElement.classList.add('selected');
+  } else {
+    delete selectedImages[img.path];
+    checkbox.parentElement.parentElement.classList.remove('selected');
+  }
+  updateBatchUI();
+}
+
+function updateBatchUI() {
+  var count = Object.keys(selectedImages).length;
+  if (count > 0) {
+    selectAllLabel.classList.remove('hidden');
+    btnBatchCopy.classList.remove('hidden');
+    btnBatchCopy.textContent = '📋 复制选中 (' + count + ')';
+  } else {
+    selectAllLabel.classList.add('hidden');
+    btnBatchCopy.classList.add('hidden');
+  }
+}
+
+function toggleSelectAll() {
+  var checked = selectAllCheckbox.checked;
+  var cards = galleryGrid.querySelectorAll('.sticker-card');
+  cards.forEach(function (card) {
+    var cb = card.querySelector('.card-checkbox');
+    var path = card.getAttribute('data-path');
+    if (cb && path) {
+      cb.checked = checked;
+      if (checked) {
+        card.classList.add('selected');
+        // 从 allImages 中找到对应数据
+        var found = allImages.find(function (img) { return img.path === path; });
+        if (found) selectedImages[path] = found;
+      } else {
+        card.classList.remove('selected');
+        delete selectedImages[path];
+      }
+    }
+  });
+  updateBatchUI();
+}
+
+function batchCopy() {
+  var paths = Object.keys(selectedImages);
+  if (paths.length === 0) return;
+
+  var lines = paths.map(function (path) {
+    var img = selectedImages[path];
+    return img.name + ': ' + getStickerUrl(img.name);
+  });
+
+  var text = lines.join('\n');
+  try {
+    awaitCopy(text);
+    showToast('已复制 ' + paths.length + ' 个表情包链接');
+  } catch (e) {
+    showToast('复制失败，请重试', 'error');
+  }
+}
+
+function awaitCopy(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  // 降级方案
+  return new Promise(function (resolve, reject) {
+    try {
+      var input = document.createElement('textarea');
+      input.value = text;
+      input.style.position = 'fixed';
+      input.style.opacity = '0';
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      resolve();
+    } catch (e) {
+      reject(e);
+    }
+  });
 }
 
 var pendingRename = null;
@@ -620,8 +731,14 @@ fileInput.addEventListener('change', function () {
 
 btnCancel.addEventListener('click', resetUpload);
 btnUpload.addEventListener('click', doUpload);
-btnRefresh.addEventListener('click', loadGallery);
+btnRefresh.addEventListener('click', function () {
+  selectedImages = {};
+  updateBatchUI();
+  loadGallery();
+});
 searchInput.addEventListener('input', onSearchChange);
+selectAllCheckbox.addEventListener('change', toggleSelectAll);
+btnBatchCopy.addEventListener('click', batchCopy);
 
 btnSettings.addEventListener('click', openSettings);
 btnCloseModal.addEventListener('click', function () { settingsModal.close(); });
