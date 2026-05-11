@@ -574,7 +574,9 @@ async function refreshAll() {
 async function loadGallery() {
   if (!settings.token && !settings.owner) { showEmptyState('noSettings'); return; }
   await readGroupData();
-  showEmptyState('loading');
+  // 已有图片时不显示 loading 闪动
+  var hasCards = galleryGrid.querySelectorAll('.sticker-card').length > 0;
+  if (!hasCards) showEmptyState('loading');
   selectedImages = {};
   selectAllCheckbox.checked = false;
   updateBatchUI();
@@ -718,16 +720,8 @@ function createCard(img) {
   editInput.type = 'text';
   var extSpan = document.createElement('span');
   extSpan.className = 'card-rename-ext';
-  var editOk = document.createElement('button');
-  editOk.className = 'btn-rename-ok';
-  editOk.textContent = '✓';
-  var editCancel = document.createElement('button');
-  editCancel.className = 'btn-rename-cancel';
-  editCancel.textContent = '✗';
   editRow.appendChild(editInput);
   editRow.appendChild(extSpan);
-  editRow.appendChild(editOk);
-  editRow.appendChild(editCancel);
 
   var actions = document.createElement('div');
   actions.className = 'card-actions';
@@ -897,6 +891,8 @@ function startRename(card, img) {
   editInput.focus();
   editInput.select();
   pendingRename = { card: card, img: img, nameEl: nameEl, editRow: editRow, editInput: editInput, ext: ext };
+  // 点击其他地方自动保存
+  editInput.onblur = function () { confirmRename(); };
 }
 
 function cancelRename() {
@@ -1127,11 +1123,7 @@ newGroupModal.addEventListener('keydown', function (e) {
   if (e.key === 'Enter') { e.preventDefault(); createNewGroup(); }
 });
 
-// 全局事件委托
-document.addEventListener('click', function (e) {
-  if (e.target.classList.contains('btn-rename-ok')) confirmRename();
-  else if (e.target.classList.contains('btn-rename-cancel')) cancelRename();
-});
+// 全局键盘事件
 document.addEventListener('keydown', function (e) {
   if (pendingRename) {
     if (e.key === 'Enter') { e.preventDefault(); confirmRename(); }
