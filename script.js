@@ -943,8 +943,23 @@ async function confirmRename() {
   try {
     await renameImageFile(r.img.path, r.img.sha, newName);
     showToast('已重命名为: ' + newName);
+    // 原地更新 DOM，不刷新整个页面
+    cacheClearKey('imageList');
+    var oldName = r.img.name;
+    r.img.name = newName;
+    r.img.path = r.img.path.substring(0, r.img.path.lastIndexOf('/') + 1) + newName;
+    r.nameEl.textContent = newName;
+    r.card.setAttribute('data-path', r.img.path);
+    r.card.querySelector('.card-image').src = getStickerUrl(newName, r.img._group);
+    // 同步 allImages
+    for (var i = 0; i < allImages.length; i++) {
+      if (allImages[i].name === oldName) {
+        allImages[i].name = newName;
+        allImages[i].path = r.img.path;
+        break;
+      }
+    }
     cancelRename();
-    await refreshAfterMutation();
   } catch (e) {
     showToast(e.message, 'error');
     r.editInput.disabled = false;
