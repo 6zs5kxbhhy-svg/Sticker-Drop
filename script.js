@@ -705,9 +705,8 @@ function batchCopy() {
   if (paths.length === 0) return;
   var lines = paths.map(function (path) {
     var img = selectedImages[path];
-    var prefix = img._group ? '[' + img._group + '] ' : '';
     var displayName = img.name.replace(/\.(png|jpe?g|gif|webp|svg)$/i, '');
-    return prefix + displayName + ': ' + getStickerUrl(img.name, img._group);
+    return displayName + ': ' + getStickerUrl(img.name);
   });
   var text = lines.join('\n');
   try {
