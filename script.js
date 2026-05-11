@@ -270,11 +270,12 @@ async function createGroupDir(name) {
 }
 
 function getStickerUrl(filename, group) {
-  var base = 'https://' + encodeURIComponent(settings.owner) + '.github.io/' + encodeURIComponent(settings.repo) + '/';
+  // 使用 jsDelivr CDN 替代 github.io（在中国网络环境下被屏蔽）
+  var base = 'https://cdn.jsdelivr.net/gh/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '@' + encodeURIComponent(settings.branch || 'main') + '/images/';
   if (group && group !== 'default') {
-    return base + imagesRoot() + '/' + encodeURIComponent(group) + '/' + encodeURIComponent(filename);
+    return base + encodeURIComponent(group) + '/' + encodeURIComponent(filename);
   }
-  return base + imagesRoot() + '/' + encodeURIComponent(filename);
+  return base + encodeURIComponent(filename);
 }
 
 // ========== 文件处理 ==========
@@ -538,7 +539,7 @@ function createCard(img) {
 
   var imgEl = document.createElement('img');
   imgEl.className = 'card-image';
-  imgEl.src = img.download_url;
+  imgEl.src = getStickerUrl(img.name, img._group);
   imgEl.alt = img.name;
   imgEl.loading = 'lazy';
   imgEl.title = '点击复制链接';
