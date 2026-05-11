@@ -123,10 +123,12 @@ async function discoverGroups() {
   return ['default'].concat(dirs);
 }
 
+function cacheBust() { return '_cb=' + Date.now(); }
+
 async function listImages(group) {
   if (group === 'all') return listAllImages();
-  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(folderPath(group)) + '?ref=' + encodeURIComponent(settings.branch || 'main');
-  var res = await fetch(url, { headers: apiHeaders() });
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(folderPath(group)) + '?ref=' + encodeURIComponent(settings.branch || 'main') + '&' + cacheBust();
+  var res = await fetch(url, { headers: apiHeaders(), cache: 'no-store' });
   if (res.status === 404) return [];
   if (!res.ok) {
     var err = await res.json().catch(function () { return {}; });
@@ -148,8 +150,8 @@ async function listImages(group) {
 }
 
 async function listAllImages() {
-  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(imagesRoot()) + '?ref=' + encodeURIComponent(settings.branch || 'main');
-  var res = await fetch(url, { headers: apiHeaders() });
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(imagesRoot()) + '?ref=' + encodeURIComponent(settings.branch || 'main') + '&' + cacheBust();
+  var res = await fetch(url, { headers: apiHeaders(), cache: 'no-store' });
   if (res.status === 404) return [];
   if (!res.ok) return [];
   var data = await res.json();
@@ -412,9 +414,9 @@ async function doUpload() {
   }
   if (success > 0) showToast('成功上传 ' + success + ' 个文件' + (failed > 0 ? '，' + failed + ' 个失败' : ''));
   resetUpload();
-  await refreshAll();
   btnUpload.disabled = false;
   btnUpload.textContent = '上传全部图片';
+  if (success > 0) await refreshAfterMutation();
 }
 
 function resetUpload() {
@@ -454,6 +456,13 @@ async function switchGroup(group) {
 }
 
 // ========== 图库 ==========
+function delay(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+
+async function refreshAfterMutation() {
+  await delay(600);
+  await refreshAll();
+}
+
 async function refreshAll() {
   groups = await discoverGroups();
   renderGroupTabs();
@@ -733,7 +742,7 @@ async function confirmRename() {
     await renameImageFile(r.img.path, r.img.sha, newName);
     showToast('已重命名为: ' + newName);
     cancelRename();
-    await loadGallery();
+    await refreshAfterMutation();
   } catch (e) {
     showToast(e.message, 'error');
     r.editInput.disabled = false;
@@ -779,7 +788,7 @@ async function confirmDelete() {
     showToast('已删除: ' + pendingDelete.name);
     deleteModal.close();
     pendingDelete = null;
-    await loadGallery();
+    await refreshAfterMutation();
   } catch (e) {
     showToast(e.message, 'error');
   } finally {
@@ -814,7 +823,7 @@ async function confirmMove() {
     showToast('已移动到: ' + (newGroup === 'default' ? '默认分组' : newGroup));
     moveGroupModal.close();
     pendingMove = null;
-    await refreshAll();
+    await refreshAfterMutation();
   } catch (e) {
     showToast(e.message, 'error');
   } finally {
@@ -841,7 +850,7 @@ async function createNewGroup() {
     await createGroupDir(name);
     showToast('分组 "' + name + '" 已创建');
     newGroupModal.close();
-    await refreshAll();
+    await refreshAfterMutation();
     switchGroup(name);
   } catch (e) {
     showToast(e.message, 'error');
