@@ -54,6 +54,7 @@ var groupTabs = $('#groupTabs');
 var selectAllLabel = $('#selectAllLabel');
 var selectAllCheckbox = $('#selectAllCheckbox');
 var btnBatchCopy = $('#btnBatchCopy');
+var btnBatchDelete = $('#btnBatchDelete');
 var newGroupModal = $('#newGroupModal');
 var newGroupInput = $('#newGroupInput');
 var btnCreateGroup = $('#btnCreateGroup');
@@ -390,7 +391,7 @@ function handleFileSelect(files) {
     // 去重
     var exists = currentFiles.some(function (f) { return f.file.name === file.name && f.file.size === file.size; });
     if (exists) { dupes++; return; }
-    currentFiles.push({ file: file });
+    currentFiles.push({ file: file, customName: null });
     added++;
   });
   if (dupes > 0) showToast(dupes + ' 个重复文件已跳过', 'error');
@@ -419,8 +420,15 @@ function renderBatchList() {
     var div = document.createElement('div');
     div.className = 'batch-item';
     var url = URL.createObjectURL(item.file);
+    var displayName = item.customName || item.file.name;
+    var dot = displayName.lastIndexOf('.');
+    var baseName = dot > 0 ? displayName.substring(0, dot) : displayName;
+    var ext = dot > 0 ? displayName.substring(dot) : '';
     div.innerHTML = '<img class="batch-thumb" src="' + url + '" alt="">'
-      + '<span class="batch-filename">' + escapeHtml(item.file.name) + '</span>'
+      + '<div class="batch-name-wrap" data-index="' + index + '">'
+      + '<span class="batch-filename-text">' + escapeHtml(baseName) + '</span><span class="batch-ext">' + escapeHtml(ext) + '</span>'
+      + '<input class="batch-rename-input hidden" type="text" value="' + escapeHtml(baseName) + '">'
+      + '</div>'
       + '<button class="batch-remove" data-index="' + index + '">×</button>';
     batchList.appendChild(div);
   });
@@ -432,6 +440,42 @@ function renderBatchList() {
         if (currentFiles.length === 0) resetUpload();
         else renderBatchList();
       }
+    });
+  });
+  // 上传前点击文件名重命名
+  batchList.querySelectorAll('.batch-filename-text').forEach(function (el) {
+    el.addEventListener('click', function () {
+      var wrap = this.parentElement;
+      var input = wrap.querySelector('.batch-rename-input');
+      if (!input) return;
+      wrap.querySelector('.batch-filename-text').classList.add('hidden');
+      wrap.querySelector('.batch-ext').classList.add('hidden');
+      input.classList.remove('hidden');
+      input.focus();
+      input.select();
+    });
+  });
+  batchList.querySelectorAll('.batch-rename-input').forEach(function (input) {
+    function confirmRename() {
+      var wrap = input.parentElement;
+      var idx = parseInt(wrap.getAttribute('data-index'));
+      var val = input.value.trim();
+      if (!val) { cancelRename(); return; }
+      var item = currentFiles[idx];
+      if (item) {
+        var dot = item.file.name.lastIndexOf('.');
+        var ext = dot > 0 ? item.file.name.substring(dot) : '';
+        item.customName = val + ext;
+      }
+      renderBatchList();
+    }
+    function cancelRename() {
+      renderBatchList();
+    }
+    input.addEventListener('blur', confirmRename);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
     });
   });
 }
@@ -446,7 +490,7 @@ async function doUpload() {
   var uploadedNames = [];
   for (var i = 0; i < currentFiles.length; i++) {
     var item = currentFiles[i];
-    var filename = item.file.name;
+    var filename = item.customName || item.file.name;
     btnUpload.textContent = '压缩上传中... (' + (i + 1) + '/' + total + ')';
     try {
       var compressed = await compressImage(item.file);
@@ -737,10 +781,13 @@ function updateBatchUI() {
   if (count > 0) {
     selectAllLabel.classList.remove('hidden');
     btnBatchCopy.classList.remove('hidden');
+    btnBatchDelete.classList.remove('hidden');
     btnBatchCopy.textContent = '📋 复制选中 (' + count + ')';
+    btnBatchDelete.textContent = '🗑️ 删除选中 (' + count + ')';
   } else {
     selectAllLabel.classList.add('hidden');
     btnBatchCopy.classList.add('hidden');
+    btnBatchDelete.classList.add('hidden');
   }
 }
 
@@ -779,6 +826,38 @@ function batchCopy() {
     showToast('已复制 ' + paths.length + ' 个表情包链接');
   } catch (e) {
     showToast('复制失败，请重试', 'error');
+  }
+}
+
+async function batchDelete() {
+  var paths = Object.keys(selectedImages);
+  if (paths.length === 0) return;
+  if (!confirm('确定要删除选中的 ' + paths.length + ' 个表情包吗？此操作不可撤销。')) return;
+  var success = 0;
+  var failed = 0;
+  for (var i = 0; i < paths.length; i++) {
+    var img = selectedImages[paths[i]];
+    showToast('删除中 (' + (i + 1) + '/' + paths.length + '): ' + img.name);
+    try {
+      await deleteImageFile(img.path, img.sha);
+      var delName = img.name;
+      if (groupData[delName]) {
+        delete groupData[delName];
+      }
+      success++;
+    } catch (e) {
+      showToast(img.name + ': ' + e.message, 'error');
+      failed++;
+    }
+  }
+  if (success > 0) {
+    try { await saveGroupData(); } catch (e) {}
+    cacheClearKey('imageList');
+    selectedImages = {};
+    selectAllCheckbox.checked = false;
+    updateBatchUI();
+    showToast('成功删除 ' + success + ' 个文件' + (failed > 0 ? '，' + failed + ' 个失败' : ''));
+    await refreshAfterMutation();
   }
 }
 
@@ -1018,6 +1097,7 @@ btnRefresh.addEventListener('click', function () { selectedImages = {}; updateBa
 searchInput.addEventListener('input', onSearchChange);
 selectAllCheckbox.addEventListener('change', toggleSelectAll);
 btnBatchCopy.addEventListener('click', batchCopy);
+btnBatchDelete.addEventListener('click', batchDelete);
 
 btnSettings.addEventListener('click', openSettings);
 btnCloseModal.addEventListener('click', function () { settingsModal.close(); });
