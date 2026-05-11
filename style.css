@@ -61,6 +61,14 @@ a:hover { text-decoration: underline; }
 }
 .upload-zone:hover, .upload-zone.drag-over { border-color: var(--primary); background: rgba(108,92,231,0.03); box-shadow: var(--shadow-lg); }
 .upload-zone.drag-over { border-style: solid; background: rgba(108,92,231,0.06); }
+/* 紧凑模式：选完文件后缩为一行，释放空间给预览列表 */
+.upload-zone.compact {
+  padding: 14px 20px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.upload-zone.compact .upload-icon { font-size: 22px; margin-bottom: 0; }
+.upload-zone.compact .upload-title { font-size: 14px; margin-bottom: 0; }
+.upload-zone.compact .upload-hint { display: none; }
 .upload-icon { font-size: 48px; margin-bottom: 12px; pointer-events: none; }
 .upload-title { font-size: 17px; font-weight: 600; margin-bottom: 6px; pointer-events: none; }
 .upload-hint { font-size: 13px; color: var(--text-light); pointer-events: none; }
@@ -83,6 +91,12 @@ a:hover { text-decoration: underline; }
 .batch-remove { background: none; border: none; cursor: pointer; color: var(--text-light); font-size: 18px; padding: 4px 8px; border-radius: 6px; transition: all 0.15s; flex-shrink: 0; }
 .batch-remove:hover { background: var(--danger); color: #fff; }
 .preview-actions { display: flex; gap: 8px; }
+
+/* 继续添加 */
+.batch-add-more { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 10px 14px; background: rgba(108,92,231,0.04); border: 1px dashed var(--primary); border-radius: 8px; }
+.btn-add-more { background: #fff; color: var(--primary); border: 1px solid var(--primary); padding: 8px 16px; font-size: 13px; font-weight: 500; border-radius: 6px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+.btn-add-more:hover { background: var(--primary); color: #fff; }
+.batch-add-hint { font-size: 12px; color: var(--text-light); }
 
 /* ========== 分组标签栏 ========== */
 .group-bar {
@@ -207,13 +221,17 @@ select.input { font-family: inherit; cursor: pointer; background: #fff; }
   .logo { font-size: 28px; }
   .main { padding: 16px 12px 32px; }
   .upload-zone { padding: 32px 16px; }
+  .upload-zone.compact { padding: 12px 14px; text-align: left; }
+  .upload-zone.compact .upload-title { font-size: 13px; }
   .upload-preview { padding: 12px; }
   .batch-header { flex-direction: column; align-items: flex-start; }
   .batch-item { padding: 10px; }
   .batch-thumb { width: 56px; height: 56px; }
   .batch-filename { font-size: 14px; }
   .batch-remove { font-size: 22px; padding: 6px 12px; }
-  .preview-actions { justify-content: center; }
+  .batch-add-more { flex-direction: column; align-items: stretch; text-align: center; gap: 6px; }
+  .btn-add-more { padding: 12px 16px; font-size: 15px; }
+  .preview-actions { justify-content: center; flex-wrap: wrap; }
   .preview-actions .btn { padding: 12px 20px; font-size: 15px; }
   .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .gallery-controls { width: 100%; }

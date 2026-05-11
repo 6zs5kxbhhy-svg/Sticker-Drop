@@ -289,20 +289,71 @@ function fileToBase64(file) {
   });
 }
 
+function compressImage(file) {
+  return new Promise(function (resolve) {
+    // 小文件跳过压缩
+    if (file.size < 300 * 1024) { resolve(file); return; }
+
+    var img = new Image();
+    var objUrl = URL.createObjectURL(file);
+    img.onload = function () {
+      URL.revokeObjectURL(objUrl);
+      var w = img.width, h = img.height;
+      var maxDim = 1920;
+      var needsResize = w > maxDim || h > maxDim;
+
+      if (!needsResize && file.size < 2 * 1024 * 1024) { resolve(file); return; }
+
+      if (needsResize) {
+        if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+        else { w = Math.round(w * maxDim / h); h = maxDim; }
+      }
+
+      var canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+
+      var mimeType = file.type === 'image/png' || file.type === 'image/webp' ? 'image/png' : 'image/jpeg';
+      var quality = mimeType === 'image/jpeg' ? 0.85 : 1;
+
+      canvas.toBlob(function (blob) {
+        if (blob && blob.size < file.size) {
+          var compressed = new File([blob], file.name, { type: mimeType, lastModified: Date.now() });
+          resolve(compressed);
+        } else {
+          resolve(file);
+        }
+      }, mimeType, quality);
+    };
+    img.onerror = function () { resolve(file); };
+    img.src = objUrl;
+  });
+}
+
 function handleFileSelect(files) {
   if (!files || files.length === 0) return;
   var fileList = files instanceof FileList ? Array.from(files) : (Array.isArray(files) ? files : [files]);
   var added = 0;
+  var dupes = 0;
   fileList.forEach(function (file) {
     if (!file.type.startsWith('image/')) { showToast(file.name + ' 不是图片文件', 'error'); return; }
     if (file.size > 10 * 1024 * 1024) { showToast(file.name + ' 超过 10MB 限制', 'error'); return; }
+    // 去重
+    var exists = currentFiles.some(function (f) { return f.file.name === file.name && f.file.size === file.size; });
+    if (exists) { dupes++; return; }
     currentFiles.push({ file: file });
     added++;
   });
+  if (dupes > 0) showToast(dupes + ' 个重复文件已跳过', 'error');
   if (added === 0) return;
   renderBatchList();
-  uploadZone.classList.add('hidden');
+  // 保持上传区可见，缩为紧凑模式，允许继续添加
+  uploadZone.classList.add('compact');
   uploadPreview.classList.remove('hidden');
+  // 关键：重置 input，确保再次选择同一文件时也能触发 change 事件
+  fileInput.value = '';
 }
 
 function renderBatchList() {
@@ -348,9 +399,10 @@ async function doUpload() {
   for (var i = 0; i < currentFiles.length; i++) {
     var item = currentFiles[i];
     var filename = item.file.name;
-    btnUpload.textContent = '上传中... (' + (i + 1) + '/' + total + ')';
+    btnUpload.textContent = '压缩上传中... (' + (i + 1) + '/' + total + ')';
     try {
-      var base64 = await fileToBase64(item.file);
+      var compressed = await compressImage(item.file);
+      var base64 = await fileToBase64(compressed);
       await uploadImageFile(filename, base64, group);
       success++;
     } catch (e) {
@@ -367,6 +419,7 @@ async function doUpload() {
 
 function resetUpload() {
   currentFiles = [];
+  uploadZone.classList.remove('compact');
   uploadZone.classList.remove('hidden');
   uploadPreview.classList.add('hidden');
   fileInput.value = '';
@@ -835,7 +888,16 @@ function onSearchChange() {
 uploadZone.addEventListener('dragover', function (e) { e.preventDefault(); uploadZone.classList.add('drag-over'); });
 uploadZone.addEventListener('dragleave', function () { uploadZone.classList.remove('drag-over'); });
 uploadZone.addEventListener('drop', function (e) { e.preventDefault(); uploadZone.classList.remove('drag-over'); if (e.dataTransfer.files.length > 0) handleFileSelect(e.dataTransfer.files); });
+// 点击紧凑模式上传区 = 重新打开文件选择器
+uploadZone.addEventListener('click', function (e) {
+  if (uploadZone.classList.contains('compact') && e.target !== fileInput) {
+    fileInput.click();
+  }
+});
 fileInput.addEventListener('change', function () { if (fileInput.files.length > 0) handleFileSelect(fileInput.files); });
+
+var btnAddMore = document.getElementById('btnAddMore');
+btnAddMore.addEventListener('click', function (e) { e.stopPropagation(); fileInput.click(); });
 
 btnCancel.addEventListener('click', resetUpload);
 btnUpload.addEventListener('click', doUpload);
