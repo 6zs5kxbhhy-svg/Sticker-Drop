@@ -108,23 +108,51 @@ function imagesRoot() { return 'images'; }
 // ========== 内存缓存（TTL 缓存，减少 API 请求） ==========
 var cacheStore = {};
 
+// localStorage 持久化 key 列表（跨页面加载保持缓存）
+var CACHE_PERSIST_KEYS = ['groupData', 'imageList'];
+
 function cacheGet(key) {
   var entry = cacheStore[key];
-  if (!entry) return null;
-  if (Date.now() - entry.ts > entry.ttl) {
-    delete cacheStore[key];
-    return null;
-  }
-  return entry.data;
+  if (entry && Date.now() - entry.ts <= entry.ttl) return entry.data;
+  if (entry) delete cacheStore[key];
+  // 内存未命中，尝试从 localStorage 恢复
+  try {
+    var saved = localStorage.getItem('sticker:' + key);
+    if (saved) {
+      entry = JSON.parse(saved);
+      if (Date.now() - entry.ts <= entry.ttl) {
+        cacheStore[key] = { data: entry.data, ts: Date.now(), ttl: 30000 };
+        return entry.data;
+      }
+      localStorage.removeItem('sticker:' + key);
+    }
+  } catch (e) {}
+  return null;
 }
 
 function cacheSet(key, data, ttl) {
   cacheStore[key] = { data: data, ts: Date.now(), ttl: ttl || 30000 };
+  // 重要数据持久化到 localStorage（5 分钟 TTL）
+  if (CACHE_PERSIST_KEYS.indexOf(key) >= 0) {
+    try {
+      localStorage.setItem('sticker:' + key, JSON.stringify({
+        data: data,
+        ts: Date.now(),
+        ttl: 5 * 60 * 1000
+      }));
+    } catch (e) {}
+  }
 }
 
-function cacheClear() { cacheStore = {}; }
+function cacheClear() {
+  cacheStore = {};
+  CACHE_PERSIST_KEYS.forEach(function (k) { try { localStorage.removeItem('sticker:' + k); } catch (e) {} });
+}
 
-function cacheClearKey(key) { delete cacheStore[key]; }
+function cacheClearKey(key) {
+  delete cacheStore[key];
+  try { localStorage.removeItem('sticker:' + key); } catch (e) {}
+}
 
 // ========== 分组数据管理（扁平存储，group 信息存入 .group-data.json） ==========
 var groupData = {};
@@ -574,9 +602,11 @@ async function refreshAll() {
 async function loadGallery() {
   if (!settings.token && !settings.owner) { showEmptyState('noSettings'); return; }
   await readGroupData();
-  // 已有图片时不显示 loading 闪动
+  // 已有图片或有本地缓存时不显示 loading 闪动
   var hasCards = galleryGrid.querySelectorAll('.sticker-card').length > 0;
-  if (!hasCards) showEmptyState('loading');
+  var hasLocalCache = false;
+  try { hasLocalCache = !!localStorage.getItem('sticker:imageList'); } catch (e) {}
+  if (!hasCards && !hasLocalCache) showEmptyState('loading');
   selectedImages = {};
   selectAllCheckbox.checked = false;
   updateBatchUI();
