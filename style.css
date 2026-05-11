@@ -33,6 +33,8 @@ a:hover { text-decoration: underline; }
 .btn-refresh:hover { border-color: var(--primary); color: var(--primary); }
 .btn-batch { background: var(--primary); color: #fff; border: none; }
 .btn-batch:hover { background: var(--primary-dark); box-shadow: 0 4px 15px rgba(108,92,231,0.35); }
+.btn-batch-danger { background: var(--danger); }
+.btn-batch-danger:hover { background: #d63031 !important; box-shadow: 0 4px 15px rgba(214,48,49,0.35) !important; }
 
 .btn-settings { background: none; border: none; cursor: pointer; padding: 8px; border-radius: 8px; color: #fff; transition: background 0.2s; }
 .btn-settings:hover { background: rgba(255,255,255,0.15); }
@@ -87,7 +89,12 @@ a:hover { text-decoration: underline; }
 .batch-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; -webkit-overflow-scrolling: touch; }
 .batch-item { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
 .batch-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: #fff; }
-.batch-filename { flex: 1; min-width: 0; font-size: 13px; word-break: break-all; color: var(--text); }
+.batch-filename { flex: 1; min-width: 0; }
+.batch-name-wrap { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; }
+.batch-filename-text { font-size: 13px; word-break: break-all; color: var(--text); cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.batch-filename-text:hover { background: #e8e8e8; }
+.batch-ext { font-size: 13px; color: var(--text-light); }
+.batch-rename-input { flex: 1; padding: 3px 6px; border: 1px solid var(--primary); border-radius: 4px; font-size: 13px; outline: none; min-width: 0; }
 .batch-remove { background: none; border: none; cursor: pointer; color: var(--text-light); font-size: 18px; padding: 4px 8px; border-radius: 6px; transition: all 0.15s; flex-shrink: 0; }
 .batch-remove:hover { background: var(--danger); color: #fff; }
 .preview-actions { display: flex; gap: 8px; }
