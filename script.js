@@ -591,7 +591,7 @@ function renderCards(images) {
     var fragment = document.createDocumentFragment();
     var end = Math.min(i + BATCH, images.length);
     while (i < end) {
-      fragment.appendChild(createCard(images[i]));
+      try { fragment.appendChild(createCard(images[i])); } catch (e) {}
       i++;
     }
     galleryGrid.appendChild(fragment);
@@ -626,9 +626,17 @@ function createCard(img) {
   imgEl.title = '点击复制链接';
   imgEl.addEventListener('click', function () { copyUrl(img.name, img._group, null); });
   imgEl.onerror = function () {
-    imgEl.style.objectFit = 'none';
-    imgEl.style.padding = '20px';
-    imgEl.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>');
+    if (imgEl.getAttribute('data-error')) return;
+    imgEl.setAttribute('data-error', '1');
+    imgEl.alt = '加载失败';
+    imgWrap.classList.add('img-error');
+    // 3 秒后自动重试（带缓存破坏参数）
+    setTimeout(function () {
+      var retryUrl = getStickerUrl(img.name, img._group) + (imgEl.src.indexOf('?') > 0 ? '&' : '?') + '_retry=' + Date.now();
+      imgWrap.classList.remove('img-error');
+      imgEl.removeAttribute('data-error');
+      imgEl.src = retryUrl;
+    }, 3000);
   };
 
   var checkbox = document.createElement('input');
