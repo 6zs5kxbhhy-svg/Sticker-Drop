@@ -104,20 +104,44 @@ function apiHeaders() {
 
 function imagesRoot() { return 'images'; }
 
-function cacheBust() { return '_cb=' + Date.now(); }
+// ========== 内存缓存（TTL 缓存，减少 API 请求） ==========
+var cacheStore = {};
+
+function cacheGet(key) {
+  var entry = cacheStore[key];
+  if (!entry) return null;
+  if (Date.now() - entry.ts > entry.ttl) {
+    delete cacheStore[key];
+    return null;
+  }
+  return entry.data;
+}
+
+function cacheSet(key, data, ttl) {
+  cacheStore[key] = { data: data, ts: Date.now(), ttl: ttl || 30000 };
+}
+
+function cacheClear() { cacheStore = {}; }
+
+function cacheClearKey(key) { delete cacheStore[key]; }
 
 // ========== 分组数据管理（扁平存储，group 信息存入 .group-data.json） ==========
 var groupData = {};
 var groupDataSha = null;
 
-async function readGroupData() {
-  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/images/.group-data.json?ref=' + encodeURIComponent(settings.branch || 'main') + '&' + cacheBust();
+async function readGroupData(force) {
+  if (!force) {
+    var cached = cacheGet('groupData');
+    if (cached) { groupData = cached.data; groupDataSha = cached.sha; return; }
+  }
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/images/.group-data.json?ref=' + encodeURIComponent(settings.branch || 'main');
   try {
     var res = await fetch(url, { headers: apiHeaders() });
     if (!res.ok) { groupData = {}; groupDataSha = null; return; }
     var data = await res.json();
     groupDataSha = data.sha;
     groupData = JSON.parse(decodeURIComponent(escape(atob(data.content))));
+    cacheSet('groupData', { data: groupData, sha: groupDataSha }, 30000);
   } catch (e) { groupData = {}; groupDataSha = null; }
 }
 
@@ -134,6 +158,7 @@ async function saveGroupData() {
   if (res.ok) {
     try { var r = await res.json(); if (r.content) groupDataSha = r.content.sha; } catch (e) {}
   }
+  cacheClearKey('groupData');
 }
 
 async function discoverGroups() {
@@ -157,16 +182,7 @@ async function discoverGroups() {
 
 async function listImages(group) {
   if (group === 'all') return listAllImages();
-  await readGroupData();
-  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(imagesRoot()) + '?ref=' + encodeURIComponent(settings.branch || 'main') + '&' + cacheBust();
-  var res = await fetch(url, { headers: apiHeaders(), cache: 'no-store' });
-  if (res.status === 404) return [];
-  if (!res.ok) {
-    var err = await res.json().catch(function () { return {}; });
-    throw new Error(err.message || '请求失败: HTTP ' + res.status);
-  }
-  var data = await res.json();
-  if (!Array.isArray(data)) return [];
+  var data = await fetchImageList();
   var exts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
   var results = [];
   data.forEach(function (f) {
@@ -185,14 +201,21 @@ async function listImages(group) {
   return results;
 }
 
-async function listAllImages() {
-  await readGroupData();
-  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(imagesRoot()) + '?ref=' + encodeURIComponent(settings.branch || 'main') + '&' + cacheBust();
-  var res = await fetch(url, { headers: apiHeaders(), cache: 'no-store' });
+async function fetchImageList() {
+  var cached = cacheGet('imageList');
+  if (cached) return cached;
+  var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/' + encodeURIComponent(imagesRoot()) + '?ref=' + encodeURIComponent(settings.branch || 'main');
+  var res = await fetch(url, { headers: apiHeaders() });
   if (res.status === 404) return [];
   if (!res.ok) return [];
   var data = await res.json();
   if (!Array.isArray(data)) return [];
+  cacheSet('imageList', data, 30000);
+  return data;
+}
+
+async function listAllImages() {
+  var data = await fetchImageList();
   var exts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
   var all = [];
   data.forEach(function (f) {
@@ -264,6 +287,7 @@ async function renameImageFile(oldPath, oldSha, newName) {
     throw new Error(err.message || '重命名失败');
   }
   await deleteImageFile(oldPath, oldSha);
+  cacheClearKey('imageList');
   // 更新分组数据中的文件名
   var oldName = oldPath.split('/').pop();
   if (groupData[oldName]) {
@@ -437,10 +461,11 @@ async function doUpload() {
   }
   // 记录分组信息
   if (group && group !== 'default' && uploadedNames.length > 0) {
-    await readGroupData();
+    await readGroupData(true);
     uploadedNames.forEach(function (n) { groupData[n] = group; });
     await saveGroupData();
   }
+  cacheClearKey('imageList');
   if (success > 0) showToast('成功上传 ' + success + ' 个文件' + (failed > 0 ? '，' + failed + ' 个失败' : ''));
   resetUpload();
   btnUpload.disabled = false;
@@ -545,15 +570,42 @@ function filterImages() {
 function renderCards(images) {
   var oldCards = galleryGrid.querySelectorAll('.sticker-card');
   oldCards.forEach(function (c) { c.remove(); });
-  images.forEach(function (img) {
-    galleryGrid.appendChild(createCard(img));
-  });
-  if (images.length === 0 && allImages.length > 0) {
-    var noResult = document.createElement('div');
-    noResult.className = 'gallery-status';
-    noResult.innerHTML = '<div class="empty-icon">🔍</div><p>没有匹配的表情包</p>';
-    noResult.id = 'noSearchResult';
-    galleryGrid.appendChild(noResult);
+  var noResult = document.getElementById('noSearchResult');
+  if (noResult) noResult.remove();
+
+  if (images.length === 0) {
+    if (allImages.length > 0) {
+      var el = document.createElement('div');
+      el.className = 'gallery-status';
+      el.innerHTML = '<div class="empty-icon">🔍</div><p>没有匹配的表情包</p>';
+      el.id = 'noSearchResult';
+      galleryGrid.appendChild(el);
+    }
+    return;
+  }
+
+  var BATCH = 20;
+  var i = 0;
+
+  function renderNextBatch() {
+    var fragment = document.createDocumentFragment();
+    var end = Math.min(i + BATCH, images.length);
+    while (i < end) {
+      fragment.appendChild(createCard(images[i]));
+      i++;
+    }
+    galleryGrid.appendChild(fragment);
+    if (i < images.length) {
+      requestAnimationFrame(renderNextBatch);
+    }
+  }
+
+  if (images.length > 50) {
+    requestAnimationFrame(renderNextBatch);
+  } else {
+    var fragment = document.createDocumentFragment();
+    images.forEach(function (img) { fragment.appendChild(createCard(img)); });
+    galleryGrid.appendChild(fragment);
   }
 }
 
@@ -573,6 +625,11 @@ function createCard(img) {
   imgEl.loading = 'lazy';
   imgEl.title = '点击复制链接';
   imgEl.addEventListener('click', function () { copyUrl(img.name, img._group, null); });
+  imgEl.onerror = function () {
+    imgEl.style.objectFit = 'none';
+    imgEl.style.padding = '20px';
+    imgEl.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>');
+  };
 
   var checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
@@ -823,6 +880,7 @@ async function confirmDelete() {
       delete groupData[delName];
       await saveGroupData();
     }
+    cacheClearKey('imageList');
     showToast('已删除: ' + delName);
     deleteModal.close();
     pendingDelete = null;
