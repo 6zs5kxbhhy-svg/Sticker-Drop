@@ -140,10 +140,18 @@ async function discoverGroups() {
   await readGroupData();
   var gs = ['default'];
   var seen = {};
+  // 从文件分组映射中收集
   Object.keys(groupData).forEach(function (k) {
+    if (k === '_groups') return;
     var g = groupData[k];
     if (g && !seen[g]) { seen[g] = true; gs.push(g); }
   });
+  // 从空分组列表中收集
+  if (groupData._groups && Array.isArray(groupData._groups)) {
+    groupData._groups.forEach(function (g) {
+      if (!seen[g]) { seen[g] = true; gs.push(g); }
+    });
+  }
   return gs;
 }
 
@@ -277,7 +285,12 @@ async function moveImageFile(oldPath, oldSha, newGroup) {
 
 async function createGroupDir(name) {
   if (!name || name.trim() === '') throw new Error('分组名不能为空');
-  // 扁平存储下无需创建目录，分组在第一张图片上传时自动建立
+  await readGroupData();
+  var groups = groupData._groups || [];
+  if (groups.indexOf(name) >= 0) throw new Error('分组 "' + name + '" 已存在');
+  groups.push(name);
+  groupData._groups = groups;
+  await saveGroupData();
 }
 
 function getStickerUrl(filename, group) {
