@@ -832,7 +832,6 @@ function onSearchChange() {
 }
 
 // ========== 事件绑定 ==========
-uploadZone.addEventListener('click', function () { fileInput.click(); });
 uploadZone.addEventListener('dragover', function (e) { e.preventDefault(); uploadZone.classList.add('drag-over'); });
 uploadZone.addEventListener('dragleave', function () { uploadZone.classList.remove('drag-over'); });
 uploadZone.addEventListener('drop', function (e) { e.preventDefault(); uploadZone.classList.remove('drag-over'); if (e.dataTransfer.files.length > 0) handleFileSelect(e.dataTransfer.files); });
