@@ -244,9 +244,9 @@ async function discoverGroups() {
   var seen = {};
   // 从文件分组映射中收集
   Object.keys(groupData).forEach(function (k) {
-    if (k === '_groups') return;
+    if (k === '_groups' || k === '_order') return;
     var g = groupData[k];
-    if (g && !seen[g]) { seen[g] = true; gs.push(g); }
+    if (g && typeof g === 'string' && !seen[g]) { seen[g] = true; gs.push(g); }
   });
   // 从空分组列表中收集
   if (groupData._groups && Array.isArray(groupData._groups)) {
