@@ -553,6 +553,21 @@ function resetUpload() {
   fileInput.value = '';
 }
 
+// ========== 懒加载图片观察器 ==========
+var imageObserver = new IntersectionObserver(function (entries) {
+  entries.forEach(function (entry) {
+    if (entry.isIntersecting) {
+      var img = entry.target;
+      var src = img.getAttribute('data-src');
+      if (src) {
+        img.src = src;
+        img.removeAttribute('data-src');
+        imageObserver.unobserve(img);
+      }
+    }
+  });
+}, { rootMargin: '300px' });
+
 // ========== 分组标签 ==========
 function renderGroupTabs() {
   var html = '';
@@ -692,28 +707,28 @@ function createCard(img) {
   card.setAttribute('data-sha', img.sha);
 
   var imgWrap = document.createElement('div');
-  imgWrap.className = 'card-img-wrap';
+  imgWrap.className = 'card-img-wrap img-loading';
 
   var imgEl = document.createElement('img');
   imgEl.className = 'card-image';
-  imgEl.src = getStickerUrl(img.name, img._group);
+  imgEl.setAttribute('data-src', getStickerUrl(img.name, img._group));
   imgEl.alt = img.name;
-  imgEl.loading = 'lazy';
   imgEl.title = '点击复制链接';
   imgEl.addEventListener('click', function () { copyUrl(img.name, img._group, null); });
+  imgEl.onload = function () { imgWrap.classList.remove('img-loading'); };
   imgEl.onerror = function () {
+    imgWrap.classList.remove('img-loading');
     if (imgEl.getAttribute('data-error')) return;
     imgEl.setAttribute('data-error', '1');
     imgEl.alt = '加载失败';
     imgWrap.classList.add('img-error');
-    // 3 秒后自动重试（带缓存破坏参数）
     setTimeout(function () {
-      var retryUrl = getStickerUrl(img.name, img._group) + (imgEl.src.indexOf('?') > 0 ? '&' : '?') + '_retry=' + Date.now();
       imgWrap.classList.remove('img-error');
       imgEl.removeAttribute('data-error');
-      imgEl.src = retryUrl;
-    }, 3000);
+      imgEl.src = getStickerUrl(img.name, img._group) + '?_retry=' + Date.now();
+    }, 5000);
   };
+  imageObserver.observe(imgEl);
 
   var checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
