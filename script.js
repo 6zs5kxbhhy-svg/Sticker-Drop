@@ -315,6 +315,7 @@ async function renameImageFile(oldPath, oldSha, newName) {
     var err = await createRes.json().catch(function () { return {}; });
     throw new Error(err.message || '重命名失败');
   }
+  var created = await createRes.json();
   await deleteImageFile(oldPath, oldSha);
   cacheClearKey('imageList');
   // 更新分组数据中的文件名
@@ -324,6 +325,7 @@ async function renameImageFile(oldPath, oldSha, newName) {
     delete groupData[oldName];
     await saveGroupData();
   }
+  return { sha: created.content.sha, path: newPath };
 }
 
 async function moveImageFile(oldPath, oldSha, newGroup) {
@@ -776,11 +778,6 @@ function createCard(img) {
   copyBtn.textContent = '复制链接';
   copyBtn.addEventListener('click', function () { copyUrl(img.name, img._group, copyBtn); });
 
-  var renameBtn = document.createElement('button');
-  renameBtn.className = 'btn-rename-card';
-  renameBtn.textContent = '重命名';
-  renameBtn.addEventListener('click', function (e) { e.stopPropagation(); startRename(card, img); });
-
   var moveBtn = document.createElement('button');
   moveBtn.className = 'btn-move-card';
   moveBtn.textContent = '移动';
@@ -792,7 +789,6 @@ function createCard(img) {
   deleteBtn.addEventListener('click', function (e) { e.stopPropagation(); openDeleteModal(img); });
 
   actions.appendChild(copyBtn);
-  actions.appendChild(renameBtn);
   actions.appendChild(moveBtn);
   actions.appendChild(deleteBtn);
   body.appendChild(nameEl);
@@ -956,21 +952,23 @@ async function confirmRename() {
   if (newName === r.img.name) { cancelRename(); return; }
   r.editInput.disabled = true;
   try {
-    await renameImageFile(r.img.path, r.img.sha, newName);
+    var result = await renameImageFile(r.img.path, r.img.sha, newName);
     showToast('已重命名为: ' + newName);
     // 原地更新 DOM，不刷新整个页面
-    cacheClearKey('imageList');
     var oldName = r.img.name;
     r.img.name = newName;
-    r.img.path = r.img.path.substring(0, r.img.path.lastIndexOf('/') + 1) + newName;
+    r.img.path = result.path;
+    r.img.sha = result.sha;
     r.nameEl.textContent = newName;
     r.card.setAttribute('data-path', r.img.path);
+    r.card.setAttribute('data-sha', r.img.sha);
     // 不更新图片 src，内容不变，旧 CDN 链接仍有效
     // 同步 allImages
     for (var i = 0; i < allImages.length; i++) {
       if (allImages[i].name === oldName) {
         allImages[i].name = newName;
         allImages[i].path = r.img.path;
+        allImages[i].sha = r.img.sha;
         break;
       }
     }
