@@ -141,12 +141,11 @@ a:hover { text-decoration: underline; }
 
 .card-img-wrap { position: relative; }
 .card-img-wrap.img-loading { background: #f0f0f0; }
-.card-img-wrap.img-loading::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
-@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .card-img-wrap.img-error { background: #f0f0f0; display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border-bottom: 1px solid var(--border); }
 .card-img-wrap.img-error .card-image { display: none; }
-.card-img-wrap.img-error::after { content: '加载失败，5秒后重试'; font-size: 12px; color: #999; text-align: center; padding: 8px; }
-.card-image { width: 100%; aspect-ratio: 1; object-fit: contain; background: #fafafa; padding: 12px; cursor: pointer; border-bottom: 1px solid var(--border); display: block; }
+.card-img-wrap.img-error::after { content: '加载失败，10秒后重试'; font-size: 12px; color: #999; text-align: center; padding: 8px; }
+.card-image { width: 100%; aspect-ratio: 1; object-fit: contain; background: #fafafa; padding: 12px; cursor: pointer; border-bottom: 1px solid var(--border); display: block; opacity: 0; transition: opacity 0.4s; }
+.card-img-wrap:not(.img-loading) .card-image { opacity: 1; }
 .card-checkbox { position: absolute; top: 8px; left: 8px; width: 20px; height: 20px; cursor: pointer; accent-color: var(--primary); opacity: 0.7; transition: opacity 0.15s; }
 .card-checkbox:hover, .card-checkbox:checked { opacity: 1; }
 
