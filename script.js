@@ -950,7 +950,7 @@ async function confirmRename() {
     r.img.path = r.img.path.substring(0, r.img.path.lastIndexOf('/') + 1) + newName;
     r.nameEl.textContent = newName;
     r.card.setAttribute('data-path', r.img.path);
-    r.card.querySelector('.card-image').src = getStickerUrl(newName, r.img._group);
+    // 不更新图片 src，内容不变，旧 CDN 链接仍有效
     // 同步 allImages
     for (var i = 0; i < allImages.length; i++) {
       if (allImages[i].name === oldName) {
