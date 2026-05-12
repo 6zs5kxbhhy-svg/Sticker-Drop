@@ -227,7 +227,7 @@ async function listImages(group) {
       }
     }
   });
-  return results;
+  return sortByOrder(results);
 }
 
 async function fetchImageList() {
@@ -243,6 +243,18 @@ async function fetchImageList() {
   return data;
 }
 
+function sortByOrder(arr) {
+  var order = groupData._order;
+  if (!order || !order.length) return arr;
+  var indexMap = {};
+  order.forEach(function (name, i) { indexMap[name] = i; });
+  return arr.sort(function (a, b) {
+    var ai = indexMap.hasOwnProperty(a.name) ? indexMap[a.name] : 999999;
+    var bi = indexMap.hasOwnProperty(b.name) ? indexMap[b.name] : 999999;
+    return ai - bi;
+  });
+}
+
 async function listAllImages() {
   var data = await fetchImageList();
   var exts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
@@ -256,7 +268,7 @@ async function listAllImages() {
       all.push(f);
     }
   });
-  return all;
+  return sortByOrder(all);
 }
 
 async function getFileContent(path) {
@@ -415,16 +427,23 @@ function handleFileSelect(files) {
   var fileList = files instanceof FileList ? Array.from(files) : (Array.isArray(files) ? files : [files]);
   var added = 0;
   var dupes = 0;
+  var skipped = 0;
   fileList.forEach(function (file) {
     if (!file.type.startsWith('image/')) { showToast(file.name + ' 不是图片文件', 'error'); return; }
     if (file.size > 10 * 1024 * 1024) { showToast(file.name + ' 超过 10MB 限制', 'error'); return; }
-    // 去重
+    // 本地列表去重
     var exists = currentFiles.some(function (f) { return f.file.name === file.name && f.file.size === file.size; });
     if (exists) { dupes++; return; }
+    // 图库去重：排除已上传的同名图片
+    if (allImages.length > 0 && allImages.some(function (img) { return img.name === file.name; })) {
+      skipped++;
+      return;
+    }
     currentFiles.push({ file: file, customName: null });
     added++;
   });
   if (dupes > 0) showToast(dupes + ' 个重复文件已跳过', 'error');
+  if (skipped > 0) showToast('已跳过 ' + skipped + ' 个已上传的图片');
   if (added === 0) return;
   renderBatchList();
   // 保持上传区可见，缩为紧凑模式，允许继续添加
@@ -533,10 +552,16 @@ async function doUpload() {
       failed++;
     }
   }
-  // 记录分组信息
-  if (group && group !== 'default' && uploadedNames.length > 0) {
+  // 维护 _order 和分组信息
+  if (uploadedNames.length > 0) {
     await readGroupData(true);
-    uploadedNames.forEach(function (n) { groupData[n] = group; });
+    if (!groupData._order) groupData._order = [];
+    uploadedNames.forEach(function (n) {
+      if (groupData._order.indexOf(n) < 0) groupData._order.push(n);
+    });
+    if (group && group !== 'default') {
+      uploadedNames.forEach(function (n) { groupData[n] = group; });
+    }
     await saveGroupData();
   }
   cacheClearKey('imageList');
@@ -722,6 +747,7 @@ function createCard(img) {
   card.className = 'sticker-card';
   card.setAttribute('data-path', img.path);
   card.setAttribute('data-sha', img.sha);
+  card.setAttribute('draggable', 'true');
 
   var imgWrap = document.createElement('div');
   imgWrap.className = 'card-img-wrap img-loading';
@@ -905,6 +931,10 @@ async function batchDelete() {
     }
   }
   if (success > 0) {
+    if (groupData._order) {
+      var deletedNames = Object.values(selectedImages).map(function (img) { return img.name; });
+      groupData._order = groupData._order.filter(function (n) { return deletedNames.indexOf(n) < 0; });
+    }
     try { await saveGroupData(); } catch (e) {}
     cacheClearKey('imageList');
     selectedImages = {};
@@ -988,6 +1018,12 @@ async function confirmRename() {
         break;
       }
     }
+    // 更新 _order 中的文件名
+    if (groupData._order) {
+      var orderIdx = groupData._order.indexOf(oldName);
+      if (orderIdx >= 0) groupData._order[orderIdx] = newName;
+      try { await saveGroupData(); } catch (e) {}
+    }
     // 仅当异步期间用户没有开始重命名其他图片时才关闭编辑状态
     if (pendingRename === r) {
       showToast('已重命名为: ' + newName);
@@ -1001,6 +1037,135 @@ async function confirmRename() {
     }
   }
 }
+
+// ========== 拖拽排序 ==========
+function reorderCard(srcCard, targetCard, before) {
+  if (!srcCard || !targetCard || srcCard === targetCard) return;
+  var srcName = getCardName(srcCard);
+  var targetName = getCardName(targetCard);
+  if (!srcName || !targetName) return;
+  var order = groupData._order || [];
+  if (order.indexOf(srcName) < 0) order.push(srcName);
+  if (order.indexOf(targetName) < 0) order.push(targetName);
+  var srcIdx = order.indexOf(srcName);
+  var targetIdx = order.indexOf(targetName);
+  order.splice(srcIdx, 1);
+  if (srcIdx < targetIdx) targetIdx--;
+  order.splice(before ? targetIdx : targetIdx + 1, 0, srcName);
+  groupData._order = order;
+  if (before) {
+    galleryGrid.insertBefore(srcCard, targetCard);
+  } else {
+    galleryGrid.insertBefore(srcCard, targetCard.nextSibling);
+  }
+  saveGroupData().catch(function () {});
+}
+
+function getCardName(card) {
+  var path = card.getAttribute('data-path');
+  if (path) return path.split('/').pop();
+  return null;
+}
+
+function clearDragClasses() {
+  galleryGrid.querySelectorAll('.sticker-card').forEach(function (c) {
+    c.classList.remove('dragging', 'drop-before', 'drop-after');
+  });
+}
+
+// == 桌面拖拽 ==
+galleryGrid.addEventListener('dragstart', function (e) {
+  var card = e.target.closest('.sticker-card');
+  if (!card) return;
+  card.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', card.getAttribute('data-path'));
+});
+
+galleryGrid.addEventListener('dragover', function (e) {
+  e.preventDefault();
+  var card = e.target.closest('.sticker-card');
+  if (!card || card.classList.contains('dragging')) return;
+  clearDragClasses();
+  var rect = card.getBoundingClientRect();
+  if (e.clientY < rect.top + rect.height / 2) {
+    card.classList.add('drop-before');
+  } else {
+    card.classList.add('drop-after');
+  }
+});
+
+galleryGrid.addEventListener('drop', function (e) {
+  e.preventDefault();
+  var path = e.dataTransfer.getData('text/plain');
+  var srcCard = galleryGrid.querySelector('.sticker-card[data-path="' + path + '"]');
+  var targetCard = document.querySelector('.sticker-card.drop-before') || document.querySelector('.sticker-card.drop-after');
+  if (srcCard && targetCard) {
+    reorderCard(srcCard, targetCard, targetCard.classList.contains('drop-before'));
+  }
+  clearDragClasses();
+});
+
+galleryGrid.addEventListener('dragend', clearDragClasses);
+
+// == 手机端长按拖拽 ==
+var touchState = null;
+
+galleryGrid.addEventListener('touchstart', function (e) {
+  var card = e.target.closest('.sticker-card');
+  if (!card || e.touches.length > 1) return;
+  var t = e.touches[0];
+  touchState = { card: card, sx: t.clientX, sy: t.clientY, active: false, ghost: null };
+  touchState.timer = setTimeout(function () {
+    touchState.active = true;
+    card.classList.add('dragging');
+    var ghost = card.cloneNode(true);
+    ghost.className = 'drag-ghost';
+    ghost.style.width = card.offsetWidth + 'px';
+    ghost.style.left = (t.clientX - card.offsetWidth / 2) + 'px';
+    ghost.style.top = (t.clientY - card.offsetHeight / 2) + 'px';
+    document.body.appendChild(ghost);
+    touchState.ghost = ghost;
+  }, 500);
+}, { passive: false });
+
+galleryGrid.addEventListener('touchmove', function (e) {
+  if (!touchState) return;
+  var t = e.touches[0];
+  if (!touchState.active) {
+    if (Math.abs(t.clientX - touchState.sx) > 10 || Math.abs(t.clientY - touchState.sy) > 10) {
+      clearTimeout(touchState.timer);
+      touchState = null;
+    }
+    return;
+  }
+  e.preventDefault();
+  touchState.ghost.style.left = (t.clientX - touchState.ghost.offsetWidth / 2) + 'px';
+  touchState.ghost.style.top = (t.clientY - touchState.ghost.offsetHeight / 2) + 'px';
+  var el = document.elementFromPoint(t.clientX, t.clientY);
+  var targetCard = el ? el.closest('.sticker-card') : null;
+  clearDragClasses();
+  if (targetCard && targetCard !== touchState.card) {
+    var rect = targetCard.getBoundingClientRect();
+    if (t.clientY < rect.top + rect.height / 2) {
+      targetCard.classList.add('drop-before');
+    } else {
+      targetCard.classList.add('drop-after');
+    }
+  }
+}, { passive: false });
+
+document.addEventListener('touchend', function () {
+  if (!touchState) return;
+  clearTimeout(touchState.timer);
+  if (touchState.ghost) document.body.removeChild(touchState.ghost);
+  if (touchState.active) {
+    var targetCard = document.querySelector('.sticker-card.drop-before') || document.querySelector('.sticker-card.drop-after');
+    if (targetCard) reorderCard(touchState.card, targetCard, targetCard.classList.contains('drop-before'));
+  }
+  clearDragClasses();
+  touchState = null;
+});
 
 // ========== 复制链接 ==========
 async function copyUrl(filename, group, btn) {
@@ -1037,12 +1202,13 @@ async function confirmDelete() {
   btnConfirmDelete.textContent = '删除中...';
   try {
     await deleteImageFile(pendingDelete.path, pendingDelete.sha);
-    // 清理分组数据
+    // 清理分组数据和 _order
     var delName = pendingDelete.name;
-    if (groupData[delName]) {
-      delete groupData[delName];
-      await saveGroupData();
+    if (groupData[delName]) delete groupData[delName];
+    if (groupData._order) {
+      groupData._order = groupData._order.filter(function (n) { return n !== delName; });
     }
+    await saveGroupData();
     cacheClearKey('imageList');
     showToast('已删除: ' + delName);
     deleteModal.close();
