@@ -972,8 +972,7 @@ async function confirmRename() {
   r.editInput.disabled = true;
   try {
     var result = await renameImageFile(r.img.path, r.img.sha, newName);
-    showToast('已重命名为: ' + newName);
-    // 原地更新 DOM，不刷新整个页面
+    // 更新 DOM 和数据（r 指向原始卡片，始终有效）
     var oldName = r.img.name;
     r.img.name = newName;
     r.img.path = result.path;
@@ -981,8 +980,6 @@ async function confirmRename() {
     r.nameEl.textContent = newName;
     r.card.setAttribute('data-path', r.img.path);
     r.card.setAttribute('data-sha', r.img.sha);
-    // 不更新图片 src，内容不变，旧 CDN 链接仍有效
-    // 同步 allImages
     for (var i = 0; i < allImages.length; i++) {
       if (allImages[i].name === oldName) {
         allImages[i].name = newName;
@@ -991,11 +988,17 @@ async function confirmRename() {
         break;
       }
     }
-    cancelRename();
+    // 仅当异步期间用户没有开始重命名其他图片时才关闭编辑状态
+    if (pendingRename === r) {
+      showToast('已重命名为: ' + newName);
+      cancelRename();
+    }
   } catch (e) {
-    showToast(e.message, 'error');
-    r.editInput.disabled = false;
-    r.editInput.focus();
+    if (pendingRename === r) {
+      showToast(e.message, 'error');
+      r.editInput.disabled = false;
+      r.editInput.focus();
+    }
   }
 }
 
