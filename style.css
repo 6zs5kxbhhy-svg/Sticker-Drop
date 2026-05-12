@@ -167,12 +167,11 @@ a:hover { text-decoration: underline; }
 .btn-copy:hover { background: var(--primary); color: #fff; }
 .btn-copy.copied { background: var(--success); border-color: var(--success); color: #fff; }
 
-.btn-rename-card, .btn-move-card, .btn-delete-card {
+.btn-move-card, .btn-delete-card {
   padding: 10px 10px; border: 1px solid var(--border); border-radius: 6px;
   background: #fff; color: var(--text-light); font-size: 13px; cursor: pointer; transition: all 0.2s;
   min-width: 44px; min-height: 44px;
 }
-.btn-rename-card:hover { border-color: #fdcb6e; color: #e17055; }
 .btn-move-card:hover { border-color: var(--primary); color: var(--primary); }
 .btn-delete-card:hover { border-color: var(--danger); color: var(--danger); }
 
