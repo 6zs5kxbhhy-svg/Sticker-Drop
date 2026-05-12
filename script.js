@@ -132,13 +132,13 @@ function cacheGet(key) {
 
 function cacheSet(key, data, ttl) {
   cacheStore[key] = { data: data, ts: Date.now(), ttl: ttl || 30000 };
-  // 重要数据持久化到 localStorage（5 分钟 TTL）
+  // 重要数据持久化到 localStorage（60 秒 TTL，允许跨标签页快速恢复但不过期太久）
   if (CACHE_PERSIST_KEYS.indexOf(key) >= 0) {
     try {
       localStorage.setItem('sticker:' + key, JSON.stringify({
         data: data,
         ts: Date.now(),
-        ttl: 5 * 60 * 1000
+        ttl: 60 * 1000
       }));
     } catch (e) {}
   }
@@ -166,28 +166,55 @@ async function readGroupData(force) {
   var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/images/.group-data.json?ref=' + encodeURIComponent(settings.branch || 'main');
   try {
     var res = await fetch(url, { headers: apiHeaders() });
-    if (!res.ok) { groupData = {}; groupDataSha = null; return; }
+    if (!res.ok) return;
     var data = await res.json();
     groupDataSha = data.sha;
     groupData = JSON.parse(decodeURIComponent(escape(atob(data.content))));
     cacheSet('groupData', { data: groupData, sha: groupDataSha }, 30000);
-  } catch (e) { groupData = {}; groupDataSha = null; }
+  } catch (e) {}
 }
 
 async function saveGroupData() {
   var url = 'https://api.github.com/repos/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/contents/images/.group-data.json';
   var content = btoa(unescape(encodeURIComponent(JSON.stringify(groupData, null, 2))));
-  var body = {
-    message: 'Update group data',
-    content: content,
-    branch: settings.branch || 'main'
-  };
-  if (groupDataSha) body.sha = groupDataSha;
-  var res = await fetch(url, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
-  if (res.ok) {
-    try { var r = await res.json(); if (r.content) groupDataSha = r.content.sha; } catch (e) {}
+  for (var attempt = 0; attempt < 3; attempt++) {
+    var body = {
+      message: 'Update group data',
+      content: content,
+      branch: settings.branch || 'main'
+    };
+    if (groupDataSha) body.sha = groupDataSha;
+    var res = await fetch(url, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
+    if (res.ok) {
+      try { var r = await res.json(); if (r.content) groupDataSha = r.content.sha; } catch (e) {}
+      cacheClearKey('groupData');
+      return true;
+    }
+    if (res.status === 409) {
+      // SHA 冲突，重新获取最新 SHA 后重试
+      try {
+        var get = await fetch(url + '?ref=' + encodeURIComponent(settings.branch || 'main'), { headers: apiHeaders() });
+        if (get.ok) {
+          var fresh = await get.json();
+          groupDataSha = fresh.sha;
+          // 合并远程的分组信息到本地
+          var remote = JSON.parse(decodeURIComponent(escape(atob(fresh.content))));
+          if (remote._order) groupData._order = remote._order;
+          if (remote._groups) groupData._groups = remote._groups;
+          Object.keys(remote).forEach(function (k) {
+            if (k === '_order' || k === '_groups') return;
+            if (!groupData[k]) groupData[k] = remote[k];
+          });
+          content = btoa(unescape(encodeURIComponent(JSON.stringify(groupData, null, 2))));
+          continue;
+        }
+      } catch (e) {}
+      break;
+    }
+    if (res.status >= 400) break;
   }
   cacheClearKey('groupData');
+  return false;
 }
 
 async function discoverGroups() {
@@ -330,14 +357,7 @@ async function renameImageFile(oldPath, oldSha, newName) {
   var created = await createRes.json();
   await deleteImageFile(oldPath, oldSha);
   cacheClearKey('imageList');
-  // 更新分组数据中的文件名
-  var oldName = oldPath.split('/').pop();
-  if (groupData[oldName]) {
-    groupData[newName] = groupData[oldName];
-    delete groupData[oldName];
-    await saveGroupData();
-  }
-  return { sha: created.content.sha, path: newPath };
+  return { sha: created.content.sha, path: newPath, oldName: oldPath.split('/').pop() };
 }
 
 async function moveImageFile(oldPath, oldSha, newGroup) {
@@ -1018,12 +1038,18 @@ async function confirmRename() {
         break;
       }
     }
-    // 更新 _order 中的文件名
+    // 合并更新分组映射 + _order，有变更时一次保存
+    var gdChanged = false;
+    if (groupData[oldName]) {
+      groupData[newName] = groupData[oldName];
+      delete groupData[oldName];
+      gdChanged = true;
+    }
     if (groupData._order) {
       var orderIdx = groupData._order.indexOf(oldName);
-      if (orderIdx >= 0) groupData._order[orderIdx] = newName;
-      try { await saveGroupData(); } catch (e) {}
+      if (orderIdx >= 0) { groupData._order[orderIdx] = newName; gdChanged = true; }
     }
+    if (gdChanged) await saveGroupData();
     // 仅当异步期间用户没有开始重命名其他图片时才关闭编辑状态
     if (pendingRename === r) {
       showToast('已重命名为: ' + newName);
