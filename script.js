@@ -413,8 +413,11 @@ async function createGroupDir(name) {
 }
 
 function getStickerUrl(filename, group) {
-  // 扁平路径，不包含分组目录
   return 'https://cdn.jsdelivr.net/gh/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '@' + encodeURIComponent(settings.branch || 'main') + '/images/' + encodeURIComponent(filename);
+}
+
+function getRawUrl(filename) {
+  return 'https://raw.githubusercontent.com/' + encodeURIComponent(settings.owner) + '/' + encodeURIComponent(settings.repo) + '/' + encodeURIComponent(settings.branch || 'main') + '/images/' + encodeURIComponent(filename);
 }
 
 // ========== 文件处理 ==========
@@ -1230,9 +1233,12 @@ document.addEventListener('touchend', function () {
 
 // ========== 复制链接 ==========
 async function copyUrl(filename, group, btn) {
-  var url = getStickerUrl(filename);
+  var cdnUrl = getStickerUrl(filename);
+  var rawUrl = getRawUrl(filename);
+  var displayName = filename.replace(/\.(png|jpe?g|gif|webp|svg)$/i, '');
+  var text = displayName + ': ' + cdnUrl + '\n' + displayName + '（直链）: ' + rawUrl;
   try {
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(text);
     if (btn) {
       btn.textContent = '已复制!';
       btn.classList.add('copied');
@@ -1241,7 +1247,7 @@ async function copyUrl(filename, group, btn) {
     showToast('链接已复制到剪贴板');
   } catch (e) {
     var input = document.createElement('input');
-    input.value = url;
+    input.value = text;
     document.body.appendChild(input);
     input.select();
     document.execCommand('copy');
