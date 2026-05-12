@@ -238,23 +238,31 @@ async function discoverGroups() {
 
 async function listImages(group) {
   if (group === 'all') return listAllImages();
+  // 有全量缓存时直接从本地过滤，不请求 API
+  if (fullImageList && fullImageList.length > 0) {
+    return filterByGroup(fullImageList, group);
+  }
   var data = await fetchImageList();
-  var exts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
   var results = [];
   data.forEach(function (f) {
     if (f.type !== 'file') return;
     if (f.name === '.group-data.json') return;
     var name = f.name.toLowerCase();
+    var exts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
     if (exts.some(function (e) { return name.endsWith('.' + e); })) {
-      var fileGroup = groupData[f.name] || null;
-      if (group === 'default') {
-        if (!fileGroup) { f._group = null; results.push(f); }
-      } else {
-        if (fileGroup === group) { f._group = group; results.push(f); }
-      }
+      f._group = groupData[f.name] || null;
+      results.push(f);
     }
   });
-  return sortByOrder(results);
+  return sortByOrder(filterByGroup(results, group));
+}
+
+function filterByGroup(arr, group) {
+  return arr.filter(function (f) {
+    var fg = f._group || null;
+    if (group === 'default') return !fg;
+    return fg === group;
+  });
 }
 
 async function fetchImageList() {
@@ -282,6 +290,8 @@ function sortByOrder(arr) {
   });
 }
 
+var fullImageList = null;
+
 async function listAllImages() {
   var data = await fetchImageList();
   var exts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
@@ -295,7 +305,8 @@ async function listAllImages() {
       all.push(f);
     }
   });
-  return sortByOrder(all);
+  fullImageList = sortByOrder(all);
+  return fullImageList;
 }
 
 async function getFileContent(path) {
@@ -356,7 +367,7 @@ async function renameImageFile(oldPath, oldSha, newName) {
   }
   var created = await createRes.json();
   await deleteImageFile(oldPath, oldSha);
-  cacheClearKey('imageList');
+  cacheClearKey('imageList'); fullImageList = null;
   return { sha: created.content.sha, path: newPath, oldName: oldPath.split('/').pop() };
 }
 
@@ -584,7 +595,7 @@ async function doUpload() {
     }
     await saveGroupData();
   }
-  cacheClearKey('imageList');
+  cacheClearKey('imageList'); fullImageList = null;
   if (success > 0) showToast('成功上传 ' + success + ' 个文件' + (failed > 0 ? '，' + failed + ' 个失败' : ''));
   resetUpload();
   btnUpload.disabled = false;
@@ -638,7 +649,8 @@ function renderGroupTabs() {
     var label = g === 'default' ? '默认' : g;
     html += '<button class="group-tab' + (currentGroup === g ? ' active' : '') + '" data-group="' + escapeHtml(g) + '">' + escapeHtml(label) + '</button>';
   });
-  html += '<button class="group-tab group-tab-add" id="btnNewGroup">+ 新建分组</button>';
+  html += '<button class="group-tab group-tab-add" id="btnNewGroup">+</button>';
+  html += '<button class="group-tab group-tab-manage" id="btnManageGroups" title="管理分组">⚙</button>';
   groupTabs.innerHTML = html;
 
   // 绑定事件
@@ -647,6 +659,8 @@ function renderGroupTabs() {
   });
   var btnNew = document.getElementById('btnNewGroup');
   if (btnNew) btnNew.addEventListener('click', openNewGroupModal);
+  var btnManage = document.getElementById('btnManageGroups');
+  if (btnManage) btnManage.addEventListener('click', openManageGroupsModal);
 }
 
 async function switchGroup(group) {
@@ -956,7 +970,7 @@ async function batchDelete() {
       groupData._order = groupData._order.filter(function (n) { return deletedNames.indexOf(n) < 0; });
     }
     try { await saveGroupData(); } catch (e) {}
-    cacheClearKey('imageList');
+    cacheClearKey('imageList'); fullImageList = null;
     selectedImages = {};
     selectAllCheckbox.checked = false;
     updateBatchUI();
@@ -1235,7 +1249,7 @@ async function confirmDelete() {
       groupData._order = groupData._order.filter(function (n) { return n !== delName; });
     }
     await saveGroupData();
-    cacheClearKey('imageList');
+    cacheClearKey('imageList'); fullImageList = null;
     showToast('已删除: ' + delName);
     deleteModal.close();
     pendingDelete = null;
@@ -1310,6 +1324,87 @@ async function createNewGroup() {
     btnCreateGroup.textContent = '创建';
   }
 }
+
+// ========== 管理分组 ==========
+var manageGroupsModal = $('#manageGroupsModal');
+var manageGroupsList = $('#manageGroupsList');
+var btnCloseManageGroups = $('#btnCloseManageGroups');
+var btnCancelManageGroups = $('#btnCancelManageGroups');
+
+function openManageGroupsModal() {
+  renderManageGroupsList();
+  manageGroupsModal.showModal();
+}
+
+function renderManageGroupsList() {
+  var html = '';
+  var mgmtGroups = groupData._groups || [];
+  if (mgmtGroups.length === 0) {
+    html = '<p style="color:#999;text-align:center;padding:20px">暂无自定义分组</p>';
+  }
+  mgmtGroups.forEach(function (g) {
+    html += '<div class="mgmt-group-row" data-group="' + escapeHtml(g) + '">'
+      + '<input class="input mgmt-rename" value="' + escapeHtml(g) + '" data-old="' + escapeHtml(g) + '">'
+      + '<button class="btn btn-save mgmt-btn-rename" style="width:auto;padding:6px 12px;font-size:12px">重命名</button>'
+      + '<button class="btn btn-danger mgmt-btn-delete" style="width:auto;padding:6px 12px;font-size:12px">删除</button>'
+      + '</div>';
+  });
+  manageGroupsList.innerHTML = html;
+
+  // 删除按钮事件
+  manageGroupsList.querySelectorAll('.mgmt-btn-delete').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var row = this.parentElement;
+      var groupName = row.getAttribute('data-group');
+      var count = 0;
+      Object.keys(groupData).forEach(function (k) {
+        if (k === '_groups' || k === '_order') return;
+        if (groupData[k] === groupName) count++;
+      });
+      if (count > 0 && !confirm('分组 "' + groupName + '" 中有 ' + count + ' 张图片，删除后这些图片将回到默认分组。确定删除？')) return;
+      try {
+        groupData._groups = groupData._groups.filter(function (g) { return g !== groupName; });
+        Object.keys(groupData).forEach(function (k) {
+          if (k === '_groups' || k === '_order') return;
+          if (groupData[k] === groupName) delete groupData[k];
+        });
+        await saveGroupData();
+        showToast('分组 "' + groupName + '" 已删除');
+        renderManageGroupsList();
+        await refreshAfterMutation();
+      } catch (e) { showToast(e.message, 'error'); }
+    });
+  });
+
+  // 重命名按钮事件
+  manageGroupsList.querySelectorAll('.mgmt-btn-rename').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var row = this.parentElement;
+      var input = row.querySelector('.mgmt-rename');
+      var oldName = input.getAttribute('data-old');
+      var newName = input.value.trim();
+      if (!newName || newName === oldName) return;
+      if (!/^[\w一-龥]+$/.test(newName)) { showToast('分组名只能包含中英文、数字和下划线', 'error'); return; }
+      if (newName === 'default' || newName === 'all') { showToast('分组名不能使用保留字', 'error'); return; }
+      if (groupData._groups.indexOf(newName) >= 0) { showToast('分组 "' + newName + '" 已存在', 'error'); return; }
+      try {
+        groupData._groups = groupData._groups.map(function (g) { return g === oldName ? newName : g; });
+        Object.keys(groupData).forEach(function (k) {
+          if (k === '_groups' || k === '_order') return;
+          if (groupData[k] === oldName) groupData[k] = newName;
+        });
+        await saveGroupData();
+        showToast('分组已重命名: ' + oldName + ' → ' + newName);
+        renderManageGroupsList();
+        await refreshAfterMutation();
+      } catch (e) { showToast(e.message, 'error'); }
+    });
+  });
+}
+
+btnCloseManageGroups.addEventListener('click', function () { manageGroupsModal.close(); });
+btnCancelManageGroups.addEventListener('click', function () { manageGroupsModal.close(); });
+manageGroupsModal.addEventListener('click', function (e) { if (e.target === manageGroupsModal) manageGroupsModal.close(); });
 
 // ========== 设置 ==========
 function openSettings() {
