@@ -117,8 +117,16 @@ a:hover { text-decoration: underline; }
 }
 .group-tab:hover { border-color: var(--primary); color: var(--primary); }
 .group-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 600; }
-.group-tab-add { border-style: dashed; color: var(--text-light); }
+.group-tab-add { border-style: dashed; color: var(--text-light); padding: 7px 12px; }
 .group-tab-add:hover { border-color: var(--success); color: var(--success); }
+.group-tab-manage { color: var(--text-light); padding: 7px 12px; font-size: 14px; }
+.group-tab-manage:hover { border-color: var(--primary); color: var(--primary); }
+
+.mgmt-group-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.mgmt-rename { flex: 1; font-family: inherit !important; }
+.mgmt-btn-rename { background: var(--primary); color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+.mgmt-btn-delete { background: #fff; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer; }
+.mgmt-btn-delete:hover { background: var(--danger); color: #fff; }
 
 /* ========== 图库 ========== */
 .gallery-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
