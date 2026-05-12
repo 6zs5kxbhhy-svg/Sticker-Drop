@@ -210,10 +210,18 @@ async function saveGroupData() {
         if (get.ok) {
           var fresh = await get.json();
           groupDataSha = fresh.sha;
-          // 合并远程的分组信息到本地
+          // 合并远程数据到本地（保留本地新增，补充远程独有）
           var remote = JSON.parse(decodeURIComponent(escape(atob(fresh.content))));
-          if (remote._order) groupData._order = remote._order;
-          if (remote._groups) groupData._groups = remote._groups;
+          if (remote._groups) {
+            remote._groups.forEach(function (g) {
+              if (groupData._groups.indexOf(g) < 0) groupData._groups.push(g);
+            });
+          }
+          if (remote._order) {
+            remote._order.forEach(function (n) {
+              if (groupData._order.indexOf(n) < 0) groupData._order.push(n);
+            });
+          }
           Object.keys(remote).forEach(function (k) {
             if (k === '_order' || k === '_groups') return;
             if (!groupData[k]) groupData[k] = remote[k];
