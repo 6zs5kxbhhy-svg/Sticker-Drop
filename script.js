@@ -106,6 +106,19 @@ function apiHeaders() {
 function imagesRoot() { return 'images'; }
 
 // ========== 内存缓存（TTL 缓存，减少 API 请求） ==========
+var CACHE_VERSION = 2;
+(function () {
+  try {
+    var v = localStorage.getItem('sticker:cacheVersion');
+    if (v !== String(CACHE_VERSION)) {
+      // 版本不匹配，清除所有旧缓存
+      localStorage.removeItem('sticker:groupData');
+      localStorage.removeItem('sticker:imageList');
+      localStorage.setItem('sticker:cacheVersion', CACHE_VERSION);
+    }
+  } catch (e) {}
+})();
+
 var cacheStore = {};
 
 // localStorage 持久化 key 列表（跨页面加载保持缓存）
