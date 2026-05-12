@@ -134,10 +134,15 @@ a:hover { text-decoration: underline; }
 /* ========== 卡片 ========== */
 .sticker-card {
   background: var(--card); border-radius: var(--radius); overflow: hidden;
-  box-shadow: var(--shadow); transition: all 0.25s; display: flex; flex-direction: column; position: relative;
+  box-shadow: var(--shadow); transition: all 0.25s; display: flex; flex-direction: column; position: relative; cursor: grab;
 }
+.sticker-card:active { cursor: grabbing; }
 .sticker-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
 .sticker-card.selected { box-shadow: 0 0 0 2px var(--primary), 0 4px 16px rgba(108,92,231,0.3); }
+.sticker-card.dragging { opacity: 0.45; transform: scale(0.95); }
+.sticker-card.drop-before { border-top: 3px solid var(--primary); }
+.sticker-card.drop-after { border-bottom: 3px solid var(--primary); }
+.drag-ghost { position: fixed; z-index: 9999; opacity: 0.85; pointer-events: none; box-shadow: 0 10px 40px rgba(0,0,0,0.3); border-radius: var(--radius); overflow: hidden; background: var(--card); transform: scale(1.05); }
 
 .card-img-wrap { position: relative; }
 .card-img-wrap.img-loading { background: #f0f0f0; }
